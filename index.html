@@ -1,74 +1,32 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alpaca & Giant Mecha Quetzalcoatlus</title>
+    <title>冰霜飞龙 - Frost Wyvern</title>
     <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            background-color: #87CEEB; /* 更亮的天空蓝 */
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        #canvas-container {
-            width: 100%;
-            height: 100vh;
-            display: block;
-        }
+        body { margin: 0; overflow: hidden; background-color: #000; }
+        canvas { display: block; }
         #loading {
             position: absolute;
-            top: 50%;
-            left: 50%;
+            top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            color: white;
+            color: #00ffff;
+            font-family: 'Courier New', Courier, monospace;
             font-size: 24px;
-            font-weight: bold;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
             pointer-events: none;
-            transition: opacity 0.5s;
-        }
-        .controls-info {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            background: rgba(255, 255, 255, 0.8);
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            pointer-events: none;
-            user-select: none;
-            max-width: 250px;
-        }
-        h1 {
-            margin: 0 0 5px 0;
-            font-size: 18px;
-            color: #333;
-        }
-        p {
-            margin: 0;
-            font-size: 14px;
-            color: #666;
+            text-shadow: 0 0 10px #00ffff;
         }
     </style>
 </head>
 <body>
-
-    <div id="canvas-container"></div>
-    <div id="loading">加载中...</div>
-    <div class="controls-info">
-        <h1>羊驼 & 巨型泰克风神翼龙</h1>
-        <p>🖱️ 左键拖拽：旋转视角</p>
-        <p>🖱️ 右键拖拽：平移视角</p>
-        <p>🖱️ 滚轮：缩放</p>
-    </div>
-
-    <!-- 使用 Import Map 方式引入模块 -->
+    <div id="loading">正在召唤冰霜飞龙...</div>
+    <!-- 引入 Three.js -->
     <script type="importmap">
         {
             "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.146.0/examples/jsm/"
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
             }
         }
     </script>
@@ -76,412 +34,485 @@
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 
         // --- 场景初始化 ---
-        const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-        scene.fog = new THREE.Fog(0x87CEEB, 30, 120); 
+        scene.background = new THREE.Color(0x051020); // 深蓝黑色背景
+        scene.fog = new THREE.FogExp2(0x051020, 0.02);
 
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(15, 10, 25); // 视角拉远以容纳巨型生物
-        camera.lookAt(0, 5, 0);
+        camera.position.set(0, 5, 18);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.toneMapping = THREE.ReinhardToneMapping;
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        container.appendChild(renderer.domElement);
+        document.body.appendChild(renderer.domElement);
 
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
-        controls.minDistance = 5;
-        controls.maxDistance = 80;
-        controls.target.set(0, 5, 0); // 中心点抬高
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 + 0.2; // 限制不能看太低
 
-        // --- 灯光 ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        // --- 灯光系统 ---
+        const ambientLight = new THREE.AmbientLight(0x404040, 2); // 基础环境光
         scene.add(ambientLight);
 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-        dirLight.position.set(20, 40, 20);
-        dirLight.castShadow = true;
-        dirLight.shadow.mapSize.width = 4096; // 提高阴影质量
-        dirLight.shadow.mapSize.height = 4096;
-        dirLight.shadow.camera.near = 0.5;
-        dirLight.shadow.camera.far = 100;
-        dirLight.shadow.camera.left = -30;
-        dirLight.shadow.camera.right = 30;
-        dirLight.shadow.camera.top = 30;
-        dirLight.shadow.camera.bottom = -30;
-        scene.add(dirLight);
+        // 主光源 (冷色调太阳)
+        const sunLight = new THREE.DirectionalLight(0xaaddff, 3);
+        sunLight.position.set(10, 20, 10);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        scene.add(sunLight);
 
-        // ==========================================
-        // 材质定义 (还原图片配色)
-        // ==========================================
-        
-        // 羊驼材质
-        const furMaterial = new THREE.MeshStandardMaterial({ color: 0xF8F8E7, roughness: 0.8 });
-        const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xC0846A, roughness: 0.7 });
-        const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x1A1A1A });
-        const hoofMaterial = new THREE.MeshStandardMaterial({color: 0x4B372F, roughness: 0.7});
+        // 底部反射光 (冰面反射)
+        const bottomLight = new THREE.DirectionalLight(0x00ffff, 1);
+        bottomLight.position.set(0, -10, 5);
+        scene.add(bottomLight);
 
-        // 泰克风神翼龙材质 (参考图片 image_042c1e.png)
-        // 主体深蓝装甲
-        const tekBlueMat = new THREE.MeshStandardMaterial({ 
-            color: 0x0044AA, 
-            roughness: 0.3,
-            metalness: 0.9,
+        // --- 材质定义 ---
+        // 1. 龙鳞/铠甲材质 (金属蓝)
+        const armorMaterial = new THREE.MeshPhysicalMaterial({
+            color: 0x2C75FF,        // 冰蓝色
+            emissive: 0x001133,
+            metalness: 0.8,
+            roughness: 0.2,
+            clearcoat: 1.0,         // 像冰一样的涂层
+            clearcoatRoughness: 0.1,
+            flatShading: true       // 开启平面着色，增强棱角感 (替代圆柱的光滑感)
         });
-        // 颈部/关节青色 (Teal)
-        const tekTealMat = new THREE.MeshStandardMaterial({ 
-            color: 0x00FFFF, 
-            roughness: 0.4,
-            metalness: 0.7,
+
+        // 2. 冰刺/骨骼材质 (半透明发光)
+        const iceSpikeMaterial = new THREE.MeshPhysicalMaterial({
+            color: 0xAAFFFF,
+            metalness: 0.1,
+            roughness: 0.1,
+            transmission: 0.6,      // 透光
+            thickness: 2.0,
+            opacity: 0.9,
+            transparent: true,
             emissive: 0x004444,
             emissiveIntensity: 0.2
         });
-        // 橙色能量板/翼尖 (Orange)
-        const tekOrangeMat = new THREE.MeshStandardMaterial({ 
-            color: 0xFF4500, 
-            roughness: 0.2,
+
+        // 3. 眼睛发光材质
+        const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0x00FFFF });
+
+        // 4. 翼膜材质 (深色破损感)
+        const wingMembraneMaterial = new THREE.MeshPhysicalMaterial({
+            color: 0x335588,
             metalness: 0.5,
-            emissive: 0xFF2200,
-            emissiveIntensity: 0.5
-        });
-        // 紫色能量光效 (眼睛/缝隙)
-        const tekPurpleLightMat = new THREE.MeshStandardMaterial({ 
-            color: 0xFF00FF,
-            emissive: 0xFF00FF,
-            emissiveIntensity: 1.0
-        });
-        // 深色机械骨架
-        const tekDarkMat = new THREE.MeshStandardMaterial({ 
-            color: 0x222222, 
             roughness: 0.7,
-            metalness: 0.8 
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.9
         });
 
-        // ==========================================
-        // 1. 羊驼 (保持地面参照物)
-        // ==========================================
-        const alpaca = new THREE.Group();
-        alpaca.position.y = 1.0; 
-        
-        // 简化的羊驼构建代码
-        const bodyMain = new THREE.Mesh(new THREE.CapsuleGeometry(1.5, 3, 10, 20), furMaterial);
-        bodyMain.rotation.z = Math.PI / 2; bodyMain.position.z = -0.5; 
-        bodyMain.castShadow = true; alpaca.add(bodyMain);
-        const bodyRear = new THREE.Mesh(new THREE.SphereGeometry(1.6, 16, 16), furMaterial);
-        bodyRear.position.set(1.5, 0, -0.5); bodyRear.castShadow = true; alpaca.add(bodyRear);
-        
-        const neckGroup = new THREE.Group(); neckGroup.position.set(-1.8, 1, 0); alpaca.add(neckGroup);
-        const neckMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, 4, 16), furMaterial);
-        neckMesh.position.y = 2; neckMesh.castShadow = true; neckGroup.add(neckMesh);
-        
-        const headGroup = new THREE.Group(); headGroup.position.y = 4.2; neckGroup.add(headGroup);
-        headGroup.add(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 16), furMaterial));
-        const snout = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 0.8, 8, 16), skinMaterial);
-        snout.rotation.x = Math.PI / 2; snout.position.set(0, -0.3, 0.8); snout.castShadow = true; headGroup.add(snout);
-        const earL = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.8, 4, 8), skinMaterial);
-        earL.position.set(0.6, 0.8, -0.2); earL.rotation.z = -0.5; headGroup.add(earL);
-        const earR = earL.clone(); earR.position.set(-0.6, 0.8, -0.2); earR.rotation.z = 0.5; headGroup.add(earR);
-        
-        function createAlpacaLeg(x, z) {
-            const g = new THREE.Group(); g.position.set(x, 0, z);
-            const up = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 1.8, 8, 16), furMaterial); up.position.y = -0.9; up.castShadow = true; g.add(up);
-            const low = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.5, 8, 16), skinMaterial); low.position.y = -2.5; low.castShadow = true; g.add(low);
-            const hoof = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.5), hoofMaterial); hoof.position.y = -3.4; hoof.castShadow = true; g.add(hoof);
-            return g;
-        }
-        const aLegFL = createAlpacaLeg(-1.2, 0.8); const aLegFR = createAlpacaLeg(-1.2, -0.8);
-        const aLegBL = createAlpacaLeg(1.2, 0.8); const aLegBR = createAlpacaLeg(1.2, -0.8);
-        alpaca.add(aLegFL, aLegFR, aLegBL, aLegBR);
-        const aTail = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 12), furMaterial);
-        aTail.position.set(2.2, 0.8, 0); alpaca.add(aTail);
+        // --- 几何体构建辅助函数 ---
 
-        scene.add(alpaca);
-
-        // ==========================================
-        // 2. 巨型泰克风神翼龙 (Giant Mecha Quetzal)
-        // ==========================================
-        const quetzal = new THREE.Group();
-        quetzal.position.set(0, 12, 0); // 高空飞行
-        scene.add(quetzal);
-
-        // 整体缩放，让它看起来巨大 (比羊驼大很多)
-        quetzal.scale.set(2.5, 2.5, 2.5);
-
-        // > 身体 (Body) - 机械装甲
-        const qBodyGeo = new THREE.CapsuleGeometry(0.8, 2.5, 4, 16);
-        const qBody = new THREE.Mesh(qBodyGeo, tekBlueMat);
-        qBody.rotation.z = Math.PI / 2;
-        qBody.castShadow = true;
-        quetzal.add(qBody);
-
-        // 背部脊椎细节 (青色)
-        for(let i=0; i<6; i++) {
-            const spine = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 0.4), tekTealMat);
-            spine.position.set(-1 + i*0.4, 0.7, 0);
-            spine.rotation.z = -0.2;
-            quetzal.add(spine);
+        // 创建尖刺 (替代圆锥，使用拉长的四面体，更像冰晶)
+        function createCrystalSpike(width, height, material) {
+            const geometry = new THREE.TetrahedronGeometry(1, 0);
+            geometry.scale(width, height, width);
+            // 随机旋转一点顶点让它看起来不那么规则
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = true;
+            return mesh;
         }
 
-        // > 机械颈部 (Neck) - 图片中的分段结构
-        const qNeckGroup = new THREE.Group();
-        qNeckGroup.position.set(-1.2, 0.2, 0);
-        quetzal.add(qNeckGroup);
+        // 创建铠甲板 (使用ExtrudeGeometry替代简单的Box)
+        function createArmorPlate(width, length, depth, material) {
+            const shape = new THREE.Shape();
+            // 绘制一个六边形或不规则多边形作为截面
+            shape.moveTo(0, width/2);
+            shape.lineTo(length/2, width);
+            shape.lineTo(length, width/2);
+            shape.lineTo(length/2, 0);
+            shape.lineTo(0, 0);
 
-        const neckSegments = [];
-        // 弯曲的长脖子
-        for(let i=0; i<8; i++) {
-            const segGeo = new THREE.CylinderGeometry(0.35, 0.4, 0.8, 8);
-            const mat = i % 2 === 0 ? tekTealMat : tekDarkMat; // 青色和深色交替
-            const seg = new THREE.Mesh(segGeo, mat);
-            // 每一段稍微旋转，形成S形曲线
-            const segGroup = new THREE.Group();
-            segGroup.position.x = -0.6; // 每一段的相对位移
-            segGroup.rotation.z = i < 3 ? 0.1 : (i > 5 ? -0.1 : 0); // 前段微抬，后段微低
+            const extrudeSettings = {
+                steps: 1,
+                depth: depth,
+                bevelEnabled: true,
+                bevelThickness: 0.1,
+                bevelSize: 0.1,
+                bevelSegments: 1
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geometry.center(); // 居中
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            return mesh;
+        }
+
+        // --- 飞龙组装 (Procedural Dragon) ---
+        const dragonGroup = new THREE.Group();
+        scene.add(dragonGroup);
+
+        // 1. 躯干 (Torso) - 由多个铠甲板层叠组成
+        const torsoGroup = new THREE.Group();
+        dragonGroup.add(torsoGroup);
+
+        for (let i = 0; i < 4; i++) {
+            const rib = createArmorPlate(1.5 - (i*0.2), 2.5, 1.8, armorMaterial);
+            rib.position.set(0, 0, i * 1.2 - 1.5);
+            rib.rotation.x = Math.PI / 2;
+            rib.scale.set(1, 1, 1 - i*0.1);
+            torsoGroup.add(rib);
             
-            if (i === 0) {
-                qNeckGroup.add(segGroup);
-            } else {
-                neckSegments[i-1].add(segGroup);
+            // 胸口发光核心
+            if(i===1) {
+                const coreLight = new THREE.PointLight(0x00ffff, 2, 5);
+                rib.add(coreLight);
             }
-            
-            seg.rotation.z = Math.PI / 2; // 横向圆柱
-            seg.castShadow = true;
-            segGroup.add(seg);
-            neckSegments.push(segGroup);
         }
 
-        // > 头部 (Head) - 极其精细
-        // 获取脖子最末端的节点作为头部挂载点
-        const headMount = neckSegments[neckSegments.length - 1];
-        const qHeadGroup = new THREE.Group();
-        qHeadGroup.position.set(-0.8, 0, 0); 
-        headMount.add(qHeadGroup);
-
-        // 头骨主体 (蓝色)
-        const qSkull = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 0.5), tekBlueMat);
-        qSkull.castShadow = true;
-        qHeadGroup.add(qSkull);
-
-        // 眼睛 (紫色发光条)
-        const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.1), tekPurpleLightMat);
-        eyeL.position.set(-0.2, 0.1, 0.26);
-        eyeL.rotation.z = 0.2;
-        qHeadGroup.add(eyeL);
-        const eyeR = eyeL.clone();
-        eyeR.position.set(-0.2, 0.1, -0.26);
-        qHeadGroup.add(eyeR);
-
-        // 机械喙 (长且尖，分为上下两部分)
-        const beakTop = new THREE.Mesh(new THREE.ConeGeometry(0.12, 3.5, 4), tekBlueMat);
-        beakTop.rotation.z = Math.PI / 2;
-        beakTop.position.set(-2.0, 0.1, 0);
-        qHeadGroup.add(beakTop);
-
-        const beakBot = new THREE.Mesh(new THREE.ConeGeometry(0.1, 3.0, 4), tekDarkMat);
-        beakBot.rotation.z = Math.PI / 2;
-        beakBot.position.set(-1.8, -0.15, 0);
-        qHeadGroup.add(beakBot);
-
-        // 巨大的头冠 (Crest) - 橙色板状，参考图片
-        const crestGroup = new THREE.Group();
-        crestGroup.position.set(0.2, 0.4, 0);
-        qHeadGroup.add(crestGroup);
-
-        const crestMain = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 0.08), tekOrangeMat);
-        crestMain.position.set(0, 0, 0);
-        crestMain.rotation.z = 0.3; // 向后倾斜
-        crestGroup.add(crestMain);
+        // 2. 脖子 (Neck) - 链式结构
+        const neckBones = [];
+        let currentParent = torsoGroup;
+        const neckLength = 6;
         
-        // 头冠上的蓝色装饰条
-        const crestDetail = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.2, 0.12), tekBlueMat);
-        crestDetail.position.set(-0.2, -0.2, 0);
-        crestDetail.rotation.z = 0.3;
-        crestGroup.add(crestDetail);
+        for (let i = 0; i < neckLength; i++) {
+            const neckSegmentGroup = new THREE.Group();
+            // 脖子位置偏移
+            neckSegmentGroup.position.set(0, 0.8, -0.5); 
+            if (i === 0) neckSegmentGroup.position.set(0, 1.5, -1.5); // 连接躯干点
 
-        // > 腿部 (Legs) - 飞行时向后收起
-        function createLeg(zDir) {
-            const g = new THREE.Group();
-            g.position.set(1.0, -0.5, 0.4 * zDir);
-            const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.3, 0.3), tekTealMat);
-            thigh.rotation.z = -0.5;
-            g.add(thigh);
-            const calf = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.2, 0.2), tekDarkMat);
-            calf.position.set(0.8, -0.2, 0);
-            calf.rotation.z = -0.2;
-            g.add(calf);
-            // 爪子
-            const claw = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.3), tekOrangeMat);
-            claw.position.set(1.4, -0.3, 0);
-            g.add(claw);
-            return g;
+            // 脖子主体 (复杂的结晶状)
+            const segmentGeo = new THREE.IcosahedronGeometry(0.6 - (i * 0.05), 0);
+            const segment = new THREE.Mesh(segmentGeo, armorMaterial);
+            segment.castShadow = true;
+            neckSegmentGroup.add(segment);
+
+            // 脖子上的冰刺 (替代鬃毛)
+            const spike = createCrystalSpike(0.2, 1.0, iceSpikeMaterial);
+            spike.position.set(0, 0.6, 0);
+            spike.rotation.x = -Math.PI / 4;
+            neckSegmentGroup.add(spike);
+
+            currentParent.add(neckSegmentGroup);
+            currentParent = neckSegmentGroup; // 链式连接
+            neckBones.push(neckSegmentGroup);
         }
-        quetzal.add(createLeg(1), createLeg(-1));
 
-        // > 机械翅膀 (Wings) - 关键难点
-        // 还原图片中的板甲结构：蓝色底座 + 橙色尖端的分层羽翼
-        const wingLGroup = new THREE.Group();
-        const wingRGroup = new THREE.Group();
-        wingLGroup.position.set(0.5, 0.5, 0.6);
-        wingRGroup.position.set(0.5, 0.5, -0.6);
-        quetzal.add(wingLGroup, wingRGroup);
+        // 3. 头部 (Head) - 接在脖子末端
+        const headGroup = new THREE.Group();
+        headGroup.position.set(0, 0.8, -0.5);
+        currentParent.add(headGroup);
 
-        function createMechaWing(isLeft) {
-            const root = new THREE.Group();
-            const zSign = isLeft ? 1 : -1;
+        // 头盖骨 (棱角分明)
+        const skullGeo = new THREE.BufferGeometry();
+        // 手动构建一个简单的低多边形龙头形状顶点 (这里简化用Octahedron变形)
+        const headMain = new THREE.Mesh(new THREE.OctahedronGeometry(0.8, 0), armorMaterial);
+        headMain.scale.set(0.8, 0.6, 1.5);
+        headGroup.add(headMain);
 
-            // 1. 上臂 (Arm)
-            const arm = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.5, 0.4), tekBlueMat);
-            arm.rotation.x = (Math.PI / 2) * zSign;
-            arm.position.z = 0.75 * zSign;
-            root.add(arm);
+        // 下颚
+        const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 1.2), armorMaterial);
+        jaw.position.set(0, -0.4, 0.2);
+        jaw.rotation.x = 0.2;
+        headGroup.add(jaw);
 
-            // 2. 前臂 (Forearm)
+        // 眼睛 (Glowing Eyes)
+        const leftEye = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, 0.2), eyeMaterial);
+        leftEye.position.set(0.35, 0.1, 0.5);
+        headGroup.add(leftEye);
+        const rightEye = leftEye.clone();
+        rightEye.position.set(-0.35, 0.1, 0.5);
+        headGroup.add(rightEye);
+        
+        // 眼睛点光源
+        const eyeLight = new THREE.PointLight(0x00ffff, 1, 2);
+        eyeLight.position.set(0, 0.1, 0.8);
+        headGroup.add(eyeLight);
+
+        // 头上的角 (Horns)
+        const leftHorn = createCrystalSpike(0.15, 1.5, iceSpikeMaterial);
+        leftHorn.position.set(0.3, 0.5, -0.5);
+        leftHorn.rotation.x = -0.5;
+        headGroup.add(leftHorn);
+        const rightHorn = leftHorn.clone();
+        rightHorn.position.set(-0.3, 0.5, -0.5);
+        headGroup.add(rightHorn);
+
+        // 4. 尾巴 (Tail) - 链式结构
+        const tailBones = [];
+        currentParent = torsoGroup;
+        const tailLength = 12;
+
+        for (let i = 0; i < tailLength; i++) {
+            const tailSegGroup = new THREE.Group();
+            tailSegGroup.position.set(0, i===0 ? -0.5 : 0, i===0 ? 1.5 : 0.8); // 向后延伸
+
+            const s = 1 - (i / tailLength); // 逐渐变小
+            const segMesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.5 * s, 0), armorMaterial);
+            tailSegGroup.add(segMesh);
+
+            // 尾巴两侧的冰刺
+            if (i % 2 === 0) {
+                const sideSpikeL = createCrystalSpike(0.1*s, 0.6*s, iceSpikeMaterial);
+                sideSpikeL.position.set(0.3*s, 0, 0);
+                sideSpikeL.rotation.z = -Math.PI/2;
+                tailSegGroup.add(sideSpikeL);
+                
+                const sideSpikeR = createCrystalSpike(0.1*s, 0.6*s, iceSpikeMaterial);
+                sideSpikeR.position.set(-0.3*s, 0, 0);
+                sideSpikeR.rotation.z = Math.PI/2;
+                tailSegGroup.add(sideSpikeR);
+            }
+
+            currentParent.add(tailSegGroup);
+            currentParent = tailSegGroup;
+            tailBones.push(tailSegGroup);
+        }
+
+        // 5. 翅膀 (Wings) - 复杂的骨架 + 破碎的膜
+        function createDetailedWing(isLeft) {
+            const wingGroup = new THREE.Group();
+            const dir = isLeft ? 1 : -1;
+
+            // 翅膀根部关节
+            const shoulder = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 0), armorMaterial);
+            wingGroup.add(shoulder);
+
+            // 主翼骨 (Arm)
+            const armLength = 4;
+            const armBone = createArmorPlate(0.3, armLength, 0.3, armorMaterial);
+            armBone.position.set(dir * armLength/2, 0, 0);
+            armBone.rotation.z = dir * 0.2;
+            shoulder.add(armBone);
+
+            // 前臂 (Forearm)
+            const forearmLength = 5;
             const forearmGroup = new THREE.Group();
-            forearmGroup.position.z = 1.5 * zSign; // 接在上臂末端
-            arm.add(forearmGroup);
+            forearmGroup.position.set(dir * armLength * 0.9, 0, 0); // 连接点
+            forearmGroup.rotation.z = dir * 0.5; // 折叠角度
+            shoulder.add(forearmGroup); // 这里简化，直接挂在shoulder层级以便后续动画，或者挂在armBone末端
 
-            const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2.0, 0.3), tekTealMat);
-            forearm.position.y = 1.0;
-            forearmGroup.add(forearm);
+            const forearmBone = createArmorPlate(0.25, forearmLength, 0.2, armorMaterial);
+            forearmBone.position.set(dir * forearmLength/2, 0, 0);
+            forearmGroup.add(forearmBone);
 
-            // 3. 翼指骨架 (Wing Finger) - 极长，向后延伸
-            const fingerGroup = new THREE.Group();
-            fingerGroup.position.y = 2.0; // 接在前臂末端
-            // 飞行时，手指展开
-            fingerGroup.rotation.z = -1.8; // 向后折
-            forearmGroup.add(fingerGroup);
-
-            const fingerBone = new THREE.Mesh(new THREE.BoxGeometry(0.2, 6.0, 0.2), tekDarkMat);
-            fingerBone.position.y = 3.0;
-            fingerGroup.add(fingerBone);
-
-            // 4. 机械羽翼板甲 (Blades)
-            // 图片显示有多个分段的板甲，蓝色为主，末端橙色
-            const bladeCount = 5;
-            for(let i=0; i<bladeCount; i++) {
-                const bladeGroup = new THREE.Group();
-                // 沿手指骨架分布
-                bladeGroup.position.y = 1.0 + i * 1.2; 
-                fingerGroup.add(bladeGroup);
-
-                // 每一片板甲的角度逐渐变化，形成扇形
-                bladeGroup.rotation.z = 0.2 + i * 0.1; 
-                // 稍微错开Z轴防止穿模
-                bladeGroup.position.z = i * 0.02 * zSign;
-
-                // 蓝色底板
-                const bladeBaseGeo = new THREE.BoxGeometry(1.5, 1.1, 0.05);
-                // 调整几何体中心，使其从骨架边缘延伸
-                bladeBaseGeo.translate(0.75, 0, 0); 
-                const bladeBase = new THREE.Mesh(bladeBaseGeo, tekBlueMat);
-                bladeGroup.add(bladeBase);
-
-                // 橙色尖端
-                const bladeTipGeo = new THREE.BoxGeometry(0.8, 1.0, 0.06);
-                bladeTipGeo.translate(0.4, 0, 0); // 相对位移
-                const bladeTip = new THREE.Mesh(bladeTipGeo, tekOrangeMat);
-                bladeTip.position.x = 1.5; // 接在蓝色底板末端
-                bladeGroup.add(bladeTip);
+            // 翼指 (Fingers) - 像雨伞骨架
+            const fingers = [];
+            for(let i=0; i<3; i++) {
+                const fingerLen = 4 + i;
+                const finger = createCrystalSpike(0.05, fingerLen, armorMaterial);
+                finger.position.set(dir * forearmLength, 0, 0); // 从前臂末端长出
+                // 展开角度
+                finger.rotation.z = dir * (Math.PI / 2 + (i * 0.5)); 
+                forearmGroup.add(finger);
+                fingers.push(finger);
             }
 
-            return root;
+            // 翼膜 (Membrane) - 使用自定义Shape来模拟破损
+            const membraneShape = new THREE.Shape();
+            membraneShape.moveTo(0, 0); // 前臂末端
+            
+            // 绘制一个带锯齿的路径连接各个指尖
+            // 注意：这里只是简化模拟，真实的动态翼膜需要蒙皮动画，这里用静态几何体模拟展开状态
+            const pts = [];
+            pts.push(new THREE.Vector2(0,0));
+            pts.push(new THREE.Vector2(dir * -2, -3)); // 第一指尖大概位置
+            pts.push(new THREE.Vector2(dir * -1, -2)); // 锯齿缺口
+            pts.push(new THREE.Vector2(dir * -3, -5)); // 第二指尖
+            pts.push(new THREE.Vector2(dir * -2.5, -3.5)); // 锯齿缺口
+            pts.push(new THREE.Vector2(dir * -5, -6)); // 第三指尖
+            pts.push(new THREE.Vector2(dir * -4, 1)); // 回到根部附近
+
+            const membraneGeo = new THREE.ShapeGeometry(new THREE.Shape(pts));
+            const membrane = new THREE.Mesh(membraneGeo, wingMembraneMaterial);
+            membrane.position.set(dir * forearmLength, 0, 0); // 挂在前臂末端
+            forearmGroup.add(membrane);
+
+            return { group: wingGroup, forearm: forearmGroup };
         }
 
-        const wingL = createMechaWing(true);
-        const wingR = createMechaWing(false);
-        wingLGroup.add(wingL);
-        wingRGroup.add(wingR);
+        const leftWingObj = createDetailedWing(true);
+        leftWingObj.group.position.set(1.2, 1, -0.5);
+        leftWingObj.group.rotation.z = -0.2;
+        leftWingObj.group.rotation.y = -0.2;
+        torsoGroup.add(leftWingObj.group);
+
+        const rightWingObj = createDetailedWing(false);
+        rightWingObj.group.position.set(-1.2, 1, -0.5);
+        rightWingObj.group.rotation.z = 0.2;
+        rightWingObj.group.rotation.y = 0.2;
+        torsoGroup.add(rightWingObj.group);
 
 
-        // --- 环境 ---
-        const ground = new THREE.Mesh(new THREE.CylinderGeometry(35, 35, 80, 32), new THREE.MeshStandardMaterial({ color: 0x7CFC00, roughness: 0.9 }));
-        ground.rotation.z = Math.PI / 2;
-        ground.position.y = -40; 
-        ground.receiveShadow = true;
-        scene.add(ground);
+        // 6. 腿部 (Legs) - 猛禽结构
+        function createLeg(isLeft) {
+            const legGroup = new THREE.Group();
+            const dir = isLeft ? 1 : -1;
 
-        function createCloud(x, y, z, scale) {
-            const g = new THREE.Group();
-            const mat = new THREE.MeshStandardMaterial({ color: 0xF0F8FF, roughness: 0.5 });
-            [[0,0,0,1.5], [1.2,0.3,-0.5,1.2], [-1,-0.2,0.3,1], [0.5,-0.5,1,0.8]].forEach(p => {
-                const m = new THREE.Mesh(new THREE.SphereGeometry(p[3], 8, 8), mat);
-                m.position.set(p[0], p[1], p[2]); g.add(m);
-            });
-            g.position.set(x, y, z); g.scale.setScalar(scale);
-            scene.add(g);
-            return g;
+            // 大腿
+            const thigh = new THREE.Mesh(new THREE.OctahedronGeometry(0.7, 0), armorMaterial);
+            thigh.scale.set(0.8, 1.2, 0.8);
+            legGroup.add(thigh);
+
+            // 小腿
+            const shin = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.5, 0.4), armorMaterial);
+            shin.position.set(0, -1.2, 0.5);
+            shin.rotation.x = -0.4;
+            legGroup.add(shin);
+
+            // 爪子
+            const clawGroup = new THREE.Group();
+            clawGroup.position.set(0, -2.0, 0.8);
+            legGroup.add(clawGroup);
+
+            // 三根脚趾
+            for(let k=-1; k<=1; k++) {
+                const toe = createCrystalSpike(0.1, 0.6, iceSpikeMaterial);
+                toe.rotation.x = Math.PI/2;
+                toe.rotation.z = k * 0.5;
+                toe.position.set(k*0.2, 0, 0);
+                clawGroup.add(toe);
+            }
+
+            return legGroup;
         }
-        const clouds = [createCloud(18,15,-10,1.8), createCloud(-15,18,-15,2.2), createCloud(0,20,10,1.5)];
 
-        // --- 动画逻辑 ---
+        const leftLeg = createLeg(true);
+        leftLeg.position.set(1, -1, 1);
+        torsoGroup.add(leftLeg);
+
+        const rightLeg = createLeg(false);
+        rightLeg.position.set(-1, -1, 1);
+        torsoGroup.add(rightLeg);
+
+
+        // --- 环境粒子系统 (Snow/Ice Dust) ---
+        const particleCount = 1500;
+        const particlesGeometry = new THREE.BufferGeometry();
+        const particlePositions = [];
+        const particleSpeeds = [];
+
+        for (let i = 0; i < particleCount; i++) {
+            const x = (Math.random() - 0.5) * 40;
+            const y = (Math.random() - 0.5) * 40;
+            const z = (Math.random() - 0.5) * 40;
+            particlePositions.push(x, y, z);
+            particleSpeeds.push(Math.random() * 0.05 + 0.02);
+        }
+
+        particlesGeometry.setAttribute('position', new THREE.Float32BufferAttribute(particlePositions, 3));
+        const particlesMaterial = new THREE.PointsMaterial({
+            color: 0xffffff,
+            size: 0.1,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending
+        });
+        const particleSystem = new THREE.Points(particlesGeometry, particlesMaterial);
+        scene.add(particleSystem);
+
+        // --- 底部冰台 ---
+        const icePlatformGeo = new THREE.CylinderGeometry(8, 8, 0.2, 6); // 这里的圆柱仅用于底座，不用于龙
+        const icePlatformMat = new THREE.MeshPhysicalMaterial({
+            color: 0x88ccff,
+            transmission: 0.8,
+            opacity: 0.8,
+            roughness: 0.1,
+            metalness: 0.1,
+            transparent: true
+        });
+        const platform = new THREE.Mesh(icePlatformGeo, icePlatformMat);
+        platform.position.y = -6;
+        scene.add(platform);
+        
+        // 底座上的尖刺
+        for(let i=0; i<10; i++) {
+            const pSpike = createCrystalSpike(0.5, 2 + Math.random(), iceSpikeMaterial);
+            const angle = Math.random() * Math.PI * 2;
+            const rad = Math.random() * 6;
+            pSpike.position.set(Math.cos(angle)*rad, -5, Math.sin(angle)*rad);
+            scene.add(pSpike);
+        }
+
+
+        // --- 后处理 (Bloom Effect) ---
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+        bloomPass.threshold = 0.2;
+        bloomPass.strength = 0.6; // 发光强度
+        bloomPass.radius = 0.5;
+        composer.addPass(bloomPass);
+
+        // --- 动画循环 ---
+        document.getElementById('loading').style.display = 'none';
+
         const clock = new THREE.Clock();
-        const speed = 10;
 
         function animate() {
             requestAnimationFrame(animate);
-            const time = clock.getElapsedTime();
-
-            // === 羊驼动画 (奔跑) ===
-            const aLegAngle = Math.sin(time * speed) * 0.6;
-            aLegFL.rotation.x = aLegAngle; aLegBL.rotation.x = aLegAngle * 0.8;
-            aLegFR.rotation.x = -aLegAngle; aLegBR.rotation.x = -aLegAngle * 0.8;
-            aLegFL.position.y = 0.5 + Math.sin(time * speed * 2) * 0.2;
-            aLegFR.position.y = 0.5 + Math.sin(time * speed * 2 + Math.PI) * 0.2;
-            alpaca.position.y = 1.0 + Math.sin(time * speed * 2) * 0.15;
-            neckGroup.rotation.x = Math.sin(time * speed + Math.PI/2) * 0.1 - 0.2;
-
-            // === 巨型泰克翼龙动画 (飞行) ===
-            const flySpeed = 2.5; // 巨型生物扇翅膀较慢但有力
             
-            // 1. 翅膀扇动 (Flapping)
-            // 分为上臂、前臂、手指的三段式扇动
-            const flapBase = Math.sin(time * flySpeed);
+            const time = clock.getElapsedTime();
+            const delta = clock.getDelta();
+
+            // 1. 全局浮动
+            dragonGroup.position.y = Math.sin(time * 1.5) * 0.5;
+
+            // 2. 翅膀扇动
+            const wingSpeed = 3;
+            const flapAngle = Math.sin(time * wingSpeed) * 0.4; // 扇动幅度
             
             // 左翼
-            wingLGroup.rotation.z = flapBase * 0.4 - 0.2; // 整体上下
-            wingL.children[0].children[0].rotation.z = flapBase * 0.2; // 前臂微调
-            
-            // 右翼 (镜像)
-            wingRGroup.rotation.z = -flapBase * 0.4 + 0.2;
-            wingR.children[0].children[0].rotation.z = -flapBase * 0.2;
+            leftWingObj.group.rotation.z = -0.2 + flapAngle; 
+            leftWingObj.forearm.rotation.z = 0.5 + flapAngle * 0.5; // 前臂跟随延迟
 
-            // 2. 身体浮动
-            quetzal.position.y = 12 + Math.sin(time * 1.5) * 1.5;
-            
-            // 3. 颈部动态 (S型蠕动)
-            neckSegments.forEach((seg, i) => {
-                seg.rotation.z = Math.sin(time * 2 + i * 0.5) * 0.05;
+            // 右翼
+            rightWingObj.group.rotation.z = 0.2 - flapAngle;
+            rightWingObj.forearm.rotation.z = -0.5 - flapAngle * 0.5;
+
+            // 3. 脖子像蛇一样蠕动 (Wave motion)
+            neckBones.forEach((bone, index) => {
+                bone.rotation.x = Math.sin(time * 2 + index * 0.5) * 0.1;
+                bone.rotation.y = Math.cos(time * 1.5 + index * 0.3) * 0.1;
             });
 
-            // 4. 盘旋移动 (Circle)
-            const circleRadius = 10;
-            quetzal.position.x = Math.sin(time * 0.5) * circleRadius;
-            quetzal.position.z = Math.cos(time * 0.5) * circleRadius;
-            quetzal.rotation.y = -time * 0.5 - Math.PI / 2; // 面向切线方向
-
-            // === 环境 ===
-            ground.rotation.x -= 0.03;
-            clouds.forEach((c, i) => {
-                c.position.x -= 0.1;
-                if(c.position.x < -35) c.position.x = 35;
+            // 4. 尾巴摆动 (Wave motion)
+            tailBones.forEach((bone, index) => {
+                bone.rotation.y = Math.sin(time * 2 - index * 0.4) * 0.15;
+                bone.rotation.x = Math.cos(time * 1.5 - index * 0.4) * 0.05;
             });
 
-            controls.update();
-            renderer.render(scene, camera);
+            // 5. 粒子下落
+            const positions = particleSystem.geometry.attributes.position.array;
+            for (let i = 1; i < positions.length; i += 3) {
+                positions[i] -= particleSpeeds[(i-1)/3];
+                if (positions[i] < -10) {
+                    positions[i] = 10;
+                }
+            }
+            particleSystem.geometry.attributes.position.needsUpdate = true;
+            particleSystem.rotation.y = time * 0.05;
+
+            // 渲染
+            composer.render();
         }
 
-        document.getElementById('loading').style.display = 'none';
+        // 窗口调整
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
         });
 
         animate();
+
     </script>
 </body>
 </html>
