@@ -3,81 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>愤怒的小鸟 3D (Three.js + Cannon.js)</title>
+    <title>Alpaca & Giant Mecha Quetzalcoatlus</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
-            font-family: 'Arial', sans-serif;
-            background-color: #87CEEB; /* 天空蓝 */
-            user-select: none;
+            background-color: #87CEEB; /* 更亮的天空蓝 */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
-        #ui-container {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            color: white;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
-            pointer-events: none; /* 让鼠标事件穿透到 Canvas */
-        }
-        h1 {
-            margin: 0;
-            font-size: 24px;
-        }
-        p {
-            margin: 5px 0;
-            font-size: 16px;
-        }
-        #score-display {
-            font-size: 32px;
-            font-weight: bold;
-            color: #FFD700;
-        }
-        #reset-btn {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            padding: 10px 20px;
-            background-color: #ff4757;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            font-size: 16px;
-            cursor: pointer;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            pointer-events: auto;
-        }
-        #reset-btn:hover {
-            background-color: #ff6b81;
+        #canvas-container {
+            width: 100%;
+            height: 100vh;
+            display: block;
         }
         #loading {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 24px;
             color: white;
+            font-size: 24px;
             font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+            pointer-events: none;
+            transition: opacity 0.5s;
+        }
+        .controls-info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            pointer-events: none;
+            user-select: none;
+            max-width: 250px;
+        }
+        h1 {
+            margin: 0 0 5px 0;
+            font-size: 18px;
+            color: #333;
+        }
+        p {
+            margin: 0;
+            font-size: 14px;
+            color: #666;
         }
     </style>
 </head>
 <body>
 
-    <div id="ui-container">
-        <h1>愤怒的小鸟 3D</h1>
-        <p>拖动红色小鸟并释放来攻击！</p>
-        <p>得分: <span id="score-display">0</span></p>
+    <div id="canvas-container"></div>
+    <div id="loading">加载中...</div>
+    <div class="controls-info">
+        <h1>羊驼 & 巨型泰克风神翼龙</h1>
+        <p>🖱️ 左键拖拽：旋转视角</p>
+        <p>🖱️ 右键拖拽：平移视角</p>
+        <p>🖱️ 滚轮：缩放</p>
     </div>
-    <button id="reset-btn" onclick="window.resetGame()">重置关卡</button>
-    <div id="loading">加载物理引擎中...</div>
 
-    <!-- 使用 ES Modules 引入 Three.js 和 Cannon-es -->
+    <!-- 使用 Import Map 方式引入模块 -->
     <script type="importmap">
         {
             "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+                "three": "https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.146.0/examples/jsm/"
             }
         }
     </script>
@@ -85,501 +76,412 @@
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import * as CANNON from 'cannon-es';
 
-        // --- 变量声明 ---
-        let scene, camera, renderer, controls;
-        let world; // 物理世界
-        let timeStep = 1 / 60;
-        let lastCallTime;
+        // --- 场景初始化 ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.Fog(0x87CEEB, 30, 120); 
 
-        // 游戏对象数组 (同步 物理Body 和 渲染Mesh)
-        let objectsToUpdate = [];
-        let pigs = [];
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(15, 10, 25); // 视角拉远以容纳巨型生物
+        camera.lookAt(0, 5, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.minDistance = 5;
+        controls.maxDistance = 80;
+        controls.target.set(0, 5, 0); // 中心点抬高
+
+        // --- 灯光 ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        dirLight.position.set(20, 40, 20);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 4096; // 提高阴影质量
+        dirLight.shadow.mapSize.height = 4096;
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 100;
+        dirLight.shadow.camera.left = -30;
+        dirLight.shadow.camera.right = 30;
+        dirLight.shadow.camera.top = 30;
+        dirLight.shadow.camera.bottom = -30;
+        scene.add(dirLight);
+
+        // ==========================================
+        // 材质定义 (还原图片配色)
+        // ==========================================
         
-        // 游戏状态
-        let isDragging = false;
-        let birdMesh, birdBody;
-        let slingshotPos = new THREE.Vector3(-10, 5, 0);
-        let raycaster = new THREE.Raycaster();
-        let mouse = new THREE.Vector2();
-        let dragPlane; // 用于拖拽的不可见平面
-        let score = 0;
-        let birdFired = false;
+        // 羊驼材质
+        const furMaterial = new THREE.MeshStandardMaterial({ color: 0xF8F8E7, roughness: 0.8 });
+        const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xC0846A, roughness: 0.7 });
+        const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x1A1A1A });
+        const hoofMaterial = new THREE.MeshStandardMaterial({color: 0x4B372F, roughness: 0.7});
 
-        // 资源材质
-        const materials = {};
+        // 泰克风神翼龙材质 (参考图片 image_042c1e.png)
+        // 主体深蓝装甲
+        const tekBlueMat = new THREE.MeshStandardMaterial({ 
+            color: 0x0044AA, 
+            roughness: 0.3,
+            metalness: 0.9,
+        });
+        // 颈部/关节青色 (Teal)
+        const tekTealMat = new THREE.MeshStandardMaterial({ 
+            color: 0x00FFFF, 
+            roughness: 0.4,
+            metalness: 0.7,
+            emissive: 0x004444,
+            emissiveIntensity: 0.2
+        });
+        // 橙色能量板/翼尖 (Orange)
+        const tekOrangeMat = new THREE.MeshStandardMaterial({ 
+            color: 0xFF4500, 
+            roughness: 0.2,
+            metalness: 0.5,
+            emissive: 0xFF2200,
+            emissiveIntensity: 0.5
+        });
+        // 紫色能量光效 (眼睛/缝隙)
+        const tekPurpleLightMat = new THREE.MeshStandardMaterial({ 
+            color: 0xFF00FF,
+            emissive: 0xFF00FF,
+            emissiveIntensity: 1.0
+        });
+        // 深色机械骨架
+        const tekDarkMat = new THREE.MeshStandardMaterial({ 
+            color: 0x222222, 
+            roughness: 0.7,
+            metalness: 0.8 
+        });
 
-        // 初始化
-        init();
-        animate();
+        // ==========================================
+        // 1. 羊驼 (保持地面参照物)
+        // ==========================================
+        const alpaca = new THREE.Group();
+        alpaca.position.y = 1.0; 
+        
+        // 简化的羊驼构建代码
+        const bodyMain = new THREE.Mesh(new THREE.CapsuleGeometry(1.5, 3, 10, 20), furMaterial);
+        bodyMain.rotation.z = Math.PI / 2; bodyMain.position.z = -0.5; 
+        bodyMain.castShadow = true; alpaca.add(bodyMain);
+        const bodyRear = new THREE.Mesh(new THREE.SphereGeometry(1.6, 16, 16), furMaterial);
+        bodyRear.position.set(1.5, 0, -0.5); bodyRear.castShadow = true; alpaca.add(bodyRear);
+        
+        const neckGroup = new THREE.Group(); neckGroup.position.set(-1.8, 1, 0); alpaca.add(neckGroup);
+        const neckMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, 4, 16), furMaterial);
+        neckMesh.position.y = 2; neckMesh.castShadow = true; neckGroup.add(neckMesh);
+        
+        const headGroup = new THREE.Group(); headGroup.position.y = 4.2; neckGroup.add(headGroup);
+        headGroup.add(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 16), furMaterial));
+        const snout = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 0.8, 8, 16), skinMaterial);
+        snout.rotation.x = Math.PI / 2; snout.position.set(0, -0.3, 0.8); snout.castShadow = true; headGroup.add(snout);
+        const earL = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.8, 4, 8), skinMaterial);
+        earL.position.set(0.6, 0.8, -0.2); earL.rotation.z = -0.5; headGroup.add(earL);
+        const earR = earL.clone(); earR.position.set(-0.6, 0.8, -0.2); earR.rotation.z = 0.5; headGroup.add(earR);
+        
+        function createAlpacaLeg(x, z) {
+            const g = new THREE.Group(); g.position.set(x, 0, z);
+            const up = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 1.8, 8, 16), furMaterial); up.position.y = -0.9; up.castShadow = true; g.add(up);
+            const low = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.5, 8, 16), skinMaterial); low.position.y = -2.5; low.castShadow = true; g.add(low);
+            const hoof = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.5), hoofMaterial); hoof.position.y = -3.4; hoof.castShadow = true; g.add(hoof);
+            return g;
+        }
+        const aLegFL = createAlpacaLeg(-1.2, 0.8); const aLegFR = createAlpacaLeg(-1.2, -0.8);
+        const aLegBL = createAlpacaLeg(1.2, 0.8); const aLegBR = createAlpacaLeg(1.2, -0.8);
+        alpaca.add(aLegFL, aLegFR, aLegBL, aLegBR);
+        const aTail = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 12), furMaterial);
+        aTail.position.set(2.2, 0.8, 0); alpaca.add(aTail);
 
-        function init() {
-            // 1. Three.js 场景设置
-            const container = document.createElement('div');
-            document.body.appendChild(container);
+        scene.add(alpaca);
 
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x87CEEB); // 天空颜色
-            scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
+        // ==========================================
+        // 2. 巨型泰克风神翼龙 (Giant Mecha Quetzal)
+        // ==========================================
+        const quetzal = new THREE.Group();
+        quetzal.position.set(0, 12, 0); // 高空飞行
+        scene.add(quetzal);
 
-            // 摄像机
-            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 10, 35);
-            camera.lookAt(0, 5, 0);
+        // 整体缩放，让它看起来巨大 (比羊驼大很多)
+        quetzal.scale.set(2.5, 2.5, 2.5);
 
-            // 渲染器
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.shadowMap.enabled = true;
-            container.appendChild(renderer.domElement);
+        // > 身体 (Body) - 机械装甲
+        const qBodyGeo = new THREE.CapsuleGeometry(0.8, 2.5, 4, 16);
+        const qBody = new THREE.Mesh(qBodyGeo, tekBlueMat);
+        qBody.rotation.z = Math.PI / 2;
+        qBody.castShadow = true;
+        quetzal.add(qBody);
 
-            // 灯光
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-            scene.add(ambientLight);
+        // 背部脊椎细节 (青色)
+        for(let i=0; i<6; i++) {
+            const spine = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 0.4), tekTealMat);
+            spine.position.set(-1 + i*0.4, 0.7, 0);
+            spine.rotation.z = -0.2;
+            quetzal.add(spine);
+        }
 
-            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            dirLight.position.set(-10, 20, 10);
-            dirLight.castShadow = true;
-            dirLight.shadow.camera.left = -20;
-            dirLight.shadow.camera.right = 20;
-            dirLight.shadow.camera.top = 20;
-            dirLight.shadow.camera.bottom = -20;
-            scene.add(dirLight);
+        // > 机械颈部 (Neck) - 图片中的分段结构
+        const qNeckGroup = new THREE.Group();
+        qNeckGroup.position.set(-1.2, 0.2, 0);
+        quetzal.add(qNeckGroup);
 
-            // 2. Cannon.js 物理世界设置
-            world = new CANNON.World();
-            world.gravity.set(0, -9.82, 0); // 重力
-            world.broadphase = new CANNON.NaiveBroadphase();
-            world.solver.iterations = 10;
+        const neckSegments = [];
+        // 弯曲的长脖子
+        for(let i=0; i<8; i++) {
+            const segGeo = new THREE.CylinderGeometry(0.35, 0.4, 0.8, 8);
+            const mat = i % 2 === 0 ? tekTealMat : tekDarkMat; // 青色和深色交替
+            const seg = new THREE.Mesh(segGeo, mat);
+            // 每一段稍微旋转，形成S形曲线
+            const segGroup = new THREE.Group();
+            segGroup.position.x = -0.6; // 每一段的相对位移
+            segGroup.rotation.z = i < 3 ? 0.1 : (i > 5 ? -0.1 : 0); // 前段微抬，后段微低
             
-            // 开启休眠：让静止的物体进入休眠状态，提高稳定性，防止微小抖动导致的倒塌
-            world.allowSleep = true;
+            if (i === 0) {
+                qNeckGroup.add(segGroup);
+            } else {
+                neckSegments[i-1].add(segGroup);
+            }
+            
+            seg.rotation.z = Math.PI / 2; // 横向圆柱
+            seg.castShadow = true;
+            segGroup.add(seg);
+            neckSegments.push(segGroup);
+        }
 
-            // 物理材质
-            const defaultMaterial = new CANNON.Material('default');
-            const defaultContactMaterial = new CANNON.ContactMaterial(defaultMaterial, defaultMaterial, {
-                friction: 0.5,    // 增加一点摩擦力，防止滑动
-                restitution: 0.2, // 稍微降低弹性，减少反弹
+        // > 头部 (Head) - 极其精细
+        // 获取脖子最末端的节点作为头部挂载点
+        const headMount = neckSegments[neckSegments.length - 1];
+        const qHeadGroup = new THREE.Group();
+        qHeadGroup.position.set(-0.8, 0, 0); 
+        headMount.add(qHeadGroup);
+
+        // 头骨主体 (蓝色)
+        const qSkull = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 0.5), tekBlueMat);
+        qSkull.castShadow = true;
+        qHeadGroup.add(qSkull);
+
+        // 眼睛 (紫色发光条)
+        const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.1), tekPurpleLightMat);
+        eyeL.position.set(-0.2, 0.1, 0.26);
+        eyeL.rotation.z = 0.2;
+        qHeadGroup.add(eyeL);
+        const eyeR = eyeL.clone();
+        eyeR.position.set(-0.2, 0.1, -0.26);
+        qHeadGroup.add(eyeR);
+
+        // 机械喙 (长且尖，分为上下两部分)
+        const beakTop = new THREE.Mesh(new THREE.ConeGeometry(0.12, 3.5, 4), tekBlueMat);
+        beakTop.rotation.z = Math.PI / 2;
+        beakTop.position.set(-2.0, 0.1, 0);
+        qHeadGroup.add(beakTop);
+
+        const beakBot = new THREE.Mesh(new THREE.ConeGeometry(0.1, 3.0, 4), tekDarkMat);
+        beakBot.rotation.z = Math.PI / 2;
+        beakBot.position.set(-1.8, -0.15, 0);
+        qHeadGroup.add(beakBot);
+
+        // 巨大的头冠 (Crest) - 橙色板状，参考图片
+        const crestGroup = new THREE.Group();
+        crestGroup.position.set(0.2, 0.4, 0);
+        qHeadGroup.add(crestGroup);
+
+        const crestMain = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.0, 0.08), tekOrangeMat);
+        crestMain.position.set(0, 0, 0);
+        crestMain.rotation.z = 0.3; // 向后倾斜
+        crestGroup.add(crestMain);
+        
+        // 头冠上的蓝色装饰条
+        const crestDetail = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.2, 0.12), tekBlueMat);
+        crestDetail.position.set(-0.2, -0.2, 0);
+        crestDetail.rotation.z = 0.3;
+        crestGroup.add(crestDetail);
+
+        // > 腿部 (Legs) - 飞行时向后收起
+        function createLeg(zDir) {
+            const g = new THREE.Group();
+            g.position.set(1.0, -0.5, 0.4 * zDir);
+            const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.3, 0.3), tekTealMat);
+            thigh.rotation.z = -0.5;
+            g.add(thigh);
+            const calf = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.2, 0.2), tekDarkMat);
+            calf.position.set(0.8, -0.2, 0);
+            calf.rotation.z = -0.2;
+            g.add(calf);
+            // 爪子
+            const claw = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.3), tekOrangeMat);
+            claw.position.set(1.4, -0.3, 0);
+            g.add(claw);
+            return g;
+        }
+        quetzal.add(createLeg(1), createLeg(-1));
+
+        // > 机械翅膀 (Wings) - 关键难点
+        // 还原图片中的板甲结构：蓝色底座 + 橙色尖端的分层羽翼
+        const wingLGroup = new THREE.Group();
+        const wingRGroup = new THREE.Group();
+        wingLGroup.position.set(0.5, 0.5, 0.6);
+        wingRGroup.position.set(0.5, 0.5, -0.6);
+        quetzal.add(wingLGroup, wingRGroup);
+
+        function createMechaWing(isLeft) {
+            const root = new THREE.Group();
+            const zSign = isLeft ? 1 : -1;
+
+            // 1. 上臂 (Arm)
+            const arm = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.5, 0.4), tekBlueMat);
+            arm.rotation.x = (Math.PI / 2) * zSign;
+            arm.position.z = 0.75 * zSign;
+            root.add(arm);
+
+            // 2. 前臂 (Forearm)
+            const forearmGroup = new THREE.Group();
+            forearmGroup.position.z = 1.5 * zSign; // 接在上臂末端
+            arm.add(forearmGroup);
+
+            const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2.0, 0.3), tekTealMat);
+            forearm.position.y = 1.0;
+            forearmGroup.add(forearm);
+
+            // 3. 翼指骨架 (Wing Finger) - 极长，向后延伸
+            const fingerGroup = new THREE.Group();
+            fingerGroup.position.y = 2.0; // 接在前臂末端
+            // 飞行时，手指展开
+            fingerGroup.rotation.z = -1.8; // 向后折
+            forearmGroup.add(fingerGroup);
+
+            const fingerBone = new THREE.Mesh(new THREE.BoxGeometry(0.2, 6.0, 0.2), tekDarkMat);
+            fingerBone.position.y = 3.0;
+            fingerGroup.add(fingerBone);
+
+            // 4. 机械羽翼板甲 (Blades)
+            // 图片显示有多个分段的板甲，蓝色为主，末端橙色
+            const bladeCount = 5;
+            for(let i=0; i<bladeCount; i++) {
+                const bladeGroup = new THREE.Group();
+                // 沿手指骨架分布
+                bladeGroup.position.y = 1.0 + i * 1.2; 
+                fingerGroup.add(bladeGroup);
+
+                // 每一片板甲的角度逐渐变化，形成扇形
+                bladeGroup.rotation.z = 0.2 + i * 0.1; 
+                // 稍微错开Z轴防止穿模
+                bladeGroup.position.z = i * 0.02 * zSign;
+
+                // 蓝色底板
+                const bladeBaseGeo = new THREE.BoxGeometry(1.5, 1.1, 0.05);
+                // 调整几何体中心，使其从骨架边缘延伸
+                bladeBaseGeo.translate(0.75, 0, 0); 
+                const bladeBase = new THREE.Mesh(bladeBaseGeo, tekBlueMat);
+                bladeGroup.add(bladeBase);
+
+                // 橙色尖端
+                const bladeTipGeo = new THREE.BoxGeometry(0.8, 1.0, 0.06);
+                bladeTipGeo.translate(0.4, 0, 0); // 相对位移
+                const bladeTip = new THREE.Mesh(bladeTipGeo, tekOrangeMat);
+                bladeTip.position.x = 1.5; // 接在蓝色底板末端
+                bladeGroup.add(bladeTip);
+            }
+
+            return root;
+        }
+
+        const wingL = createMechaWing(true);
+        const wingR = createMechaWing(false);
+        wingLGroup.add(wingL);
+        wingRGroup.add(wingR);
+
+
+        // --- 环境 ---
+        const ground = new THREE.Mesh(new THREE.CylinderGeometry(35, 35, 80, 32), new THREE.MeshStandardMaterial({ color: 0x7CFC00, roughness: 0.9 }));
+        ground.rotation.z = Math.PI / 2;
+        ground.position.y = -40; 
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        function createCloud(x, y, z, scale) {
+            const g = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({ color: 0xF0F8FF, roughness: 0.5 });
+            [[0,0,0,1.5], [1.2,0.3,-0.5,1.2], [-1,-0.2,0.3,1], [0.5,-0.5,1,0.8]].forEach(p => {
+                const m = new THREE.Mesh(new THREE.SphereGeometry(p[3], 8, 8), mat);
+                m.position.set(p[0], p[1], p[2]); g.add(m);
             });
-            world.addContactMaterial(defaultContactMaterial);
-
-            // 3. 创建游戏环境
-            createMaterials();
-            createGround();
-            createSlingshot();
-            createLevel(); // 创建猪和砖块
-            createBird();  // 创建小鸟
-
-            // 拖拽辅助平面 (Z=0)
-            dragPlane = new THREE.Mesh(
-                new THREE.PlaneGeometry(100, 100),
-                new THREE.MeshBasicMaterial({ visible: false })
-            );
-            scene.add(dragPlane);
-
-            // 事件监听
-            window.addEventListener('resize', onWindowResize);
-            window.addEventListener('mousedown', onMouseDown);
-            window.addEventListener('mousemove', onMouseMove);
-            window.addEventListener('mouseup', onMouseUp);
-            
-            // 触摸支持
-            window.addEventListener('touchstart', onTouchStart, {passive: false});
-            window.addEventListener('touchmove', onTouchMove, {passive: false});
-            window.addEventListener('touchend', onMouseUp);
-
-            // 移除加载文字
-            document.getElementById('loading').style.display = 'none';
-            
-            // 全局重置函数
-            window.resetGame = resetGame;
+            g.position.set(x, y, z); g.scale.setScalar(scale);
+            scene.add(g);
+            return g;
         }
+        const clouds = [createCloud(18,15,-10,1.8), createCloud(-15,18,-15,2.2), createCloud(0,20,10,1.5)];
 
-        function createMaterials() {
-            materials.wood = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
-            materials.stone = new THREE.MeshStandardMaterial({ color: 0x808080 });
-            materials.pig = new THREE.MeshStandardMaterial({ color: 0x7CFC00 });
-            materials.bird = new THREE.MeshStandardMaterial({ color: 0xFF0000 });
-            materials.ground = new THREE.MeshStandardMaterial({ color: 0x228B22 });
-        }
-
-        function createGround() {
-            // Three.js 地面
-            const groundGeo = new THREE.PlaneGeometry(100, 100);
-            const groundMesh = new THREE.Mesh(groundGeo, materials.ground);
-            groundMesh.rotation.x = -Math.PI / 2;
-            groundMesh.receiveShadow = true;
-            scene.add(groundMesh);
-
-            // Cannon.js 地面
-            const groundShape = new CANNON.Plane();
-            const groundBody = new CANNON.Body({ mass: 0 }); // mass 0 = 静态
-            groundBody.addShape(groundShape);
-            groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
-            world.addBody(groundBody);
-        }
-
-        function createSlingshot() {
-            // 简单的弹弓视觉模型 (Y型)
-            const mat = new THREE.MeshStandardMaterial({ color: 0x5D4037 });
-            
-            const base = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 5), mat);
-            base.position.set(slingshotPos.x, 2.5, slingshotPos.z);
-            base.castShadow = true;
-            scene.add(base);
-
-            const leftArm = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 3), mat);
-            leftArm.position.set(slingshotPos.x - 0.8, 5.5, slingshotPos.z);
-            leftArm.rotation.z = Math.PI / 6;
-            scene.add(leftArm);
-
-            const rightArm = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 3), mat);
-            rightArm.position.set(slingshotPos.x + 0.8, 5.5, slingshotPos.z);
-            rightArm.rotation.z = -Math.PI / 6;
-            scene.add(rightArm);
-        }
-
-        function createBox(x, y, z, w, h, d, mass, material) {
-            // Three.js
-            const geometry = new THREE.BoxGeometry(w, h, d);
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.position.set(x, y, z);
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            scene.add(mesh);
-
-            // Cannon.js
-            const shape = new CANNON.Box(new CANNON.Vec3(w/2, h/2, d/2));
-            const body = new CANNON.Body({ mass: mass });
-            body.addShape(shape);
-            body.position.set(x, y, z);
-            world.addBody(body);
-
-            // 同步对象
-            objectsToUpdate.push({ mesh, body });
-            return body;
-        }
-
-        function createPig(x, y, z) {
-            const radius = 0.8;
-            
-            // Visuals
-            const geometry = new THREE.SphereGeometry(radius, 16, 16);
-            const mesh = new THREE.Mesh(geometry, materials.pig);
-            mesh.position.set(x, y, z);
-            mesh.castShadow = true;
-            
-            // 添加眼睛和鼻子让它看起来像猪
-            const eyeGeo = new THREE.SphereGeometry(0.15, 8, 8);
-            const eyeMat = new THREE.MeshBasicMaterial({color:0xffffff});
-            const pupilMat = new THREE.MeshBasicMaterial({color:0x000000});
-            const noseGeo = new THREE.SphereGeometry(0.25, 8, 8);
-            const noseMat = new THREE.MeshBasicMaterial({color:0x32CD32}); // 深绿
-
-            const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-            leftEye.position.set(-0.3, 0.2, 0.6);
-            mesh.add(leftEye);
-            const leftPupil = new THREE.Mesh(new THREE.SphereGeometry(0.07), pupilMat);
-            leftPupil.position.set(0,0,0.14);
-            leftEye.add(leftPupil);
-
-            const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-            rightEye.position.set(0.3, 0.2, 0.6);
-            mesh.add(rightEye);
-            const rightPupil = new THREE.Mesh(new THREE.SphereGeometry(0.07), pupilMat);
-            rightPupil.position.set(0,0,0.14);
-            rightEye.add(rightPupil);
-
-            const nose = new THREE.Mesh(noseGeo, noseMat);
-            nose.position.set(0, -0.1, 0.7);
-            mesh.add(nose);
-
-            scene.add(mesh);
-
-            // Physics
-            const shape = new CANNON.Sphere(radius);
-            const body = new CANNON.Body({ mass: 2 });
-            body.addShape(shape);
-            body.position.set(x, y, z);
-            world.addBody(body);
-
-            // 监听碰撞
-            body.addEventListener("collide", (e) => {
-                // 修复逻辑：只有当鸟被发射后，才允许猪受到伤害
-                // 这防止了关卡初始化时物体微小位移或重叠导致的误判
-                if (!birdFired) return;
-
-                // 计算碰撞强度
-                const relativeVelocity = e.contact.getImpactVelocityAlongNormal();
-                
-                // 稍微提高了碰撞阈值 (5 -> 8)，防止轻轻一碰就死
-                if(Math.abs(relativeVelocity) > 8) {
-                    removePig(mesh, body);
-                }
-            });
-
-            objectsToUpdate.push({ mesh, body });
-            pigs.push({ mesh, body });
-        }
-
-        function createBird() {
-            if(birdMesh) scene.remove(birdMesh);
-            if(birdBody) world.removeBody(birdBody);
-            birdFired = false;
-
-            const radius = 0.6;
-            
-            // 视觉
-            const geometry = new THREE.SphereGeometry(radius, 16, 16);
-            birdMesh = new THREE.Mesh(geometry, materials.bird);
-            birdMesh.castShadow = true;
-            // 初始位置在弹弓中心
-            birdMesh.position.copy(slingshotPos);
-            birdMesh.position.y += 1.5; 
-            scene.add(birdMesh);
-
-            // 物理 (一开始不添加到世界，或者设为静态，直到发射)
-            // 我们这里先不创建物理实体，直到发射的那一刻，
-            // 或者创建一个 Static Body 跟随鼠标，发射时切换为 Dynamic
-        }
-
-        function createLevel() {
-            const startX = 10;
-            
-            // --- 重新计算堆叠坐标，防止重叠 ---
-            
-            // 1. 底层柱子 (石头)
-            // 高度: 4, Y中心: 0 + 2 = 2. 顶部Y: 4
-            createBox(startX, 2, 0, 1, 4, 1, 5, materials.stone);
-            createBox(startX + 6, 2, 0, 1, 4, 1, 5, materials.stone);
-            
-            // 2. 第一层横梁 (木头)
-            // 放置在Y=4之上. 高度: 0.5. Y中心: 4 + 0.25 = 4.25. 顶部Y: 4.5
-            createBox(startX + 3, 4.25, 0, 8, 0.5, 1, 2, materials.wood);
-
-            // 中间的小猪 (在地面)
-            // 半径0.8. Y中心: 0.8
-            createPig(startX + 3, 0.8, 0);
-
-            // 3. 第二层柱子 (木头) - 单根
-            // 放置在Y=4.5之上. 高度: 4. Y中心: 4.5 + 2 = 6.5. 顶部Y: 8.5
-            createBox(startX + 3, 6.5, 0, 1, 4, 1, 1, materials.wood);
-
-            // 4. 顶层横梁 (木头)
-            // 放置在Y=8.5之上. 高度: 0.5. Y中心: 8.5 + 0.25 = 8.75. 顶部Y: 9
-            createBox(startX + 3, 8.75, 0, 4, 0.5, 1, 1, materials.wood);
-            
-            // 5. 顶层小猪
-            // 放置在Y=9之上. 半径0.8. Y中心: 9 + 0.8 = 9.8
-            createPig(startX + 3, 9.8, 0);
-
-            // 6. 旁边的一堆箱子 (右侧)
-            // 箱子1: 高2. Y中心: 1. 顶部Y: 2
-            createBox(startX + 8, 1, 0, 2, 2, 2, 1, materials.wood);
-            // 箱子2: 放置在Y=2之上. 高2. Y中心: 2 + 1 = 3. 顶部Y: 4
-            createBox(startX + 8, 3, 0, 2, 2, 2, 1, materials.wood);
-            // 旁边的猪: 放置在Y=4之上. Y中心: 4 + 0.8 = 4.8
-            createPig(startX + 8, 4.8, 0);
-        }
-
-        function fireBird(position, velocity) {
-            const radius = 0.6;
-            
-            // 创建物理身体
-            const shape = new CANNON.Sphere(radius);
-            birdBody = new CANNON.Body({ mass: 5 });
-            birdBody.addShape(shape);
-            birdBody.position.copy(position);
-            birdBody.velocity.copy(velocity);
-            
-            world.addBody(birdBody);
-            objectsToUpdate.push({ mesh: birdMesh, body: birdBody });
-            birdFired = true;
-        }
-
-        function removePig(mesh, body) {
-            // 简单的防抖，防止多次触发
-            if(mesh.userData.isRemoved) return;
-            mesh.userData.isRemoved = true;
-
-            // 增加分数
-            score += 100;
-            document.getElementById('score-display').innerText = score;
-
-            // 延迟移除，或者添加特效
-            // 这里简单起见，直接下一帧移除
-            setTimeout(() => {
-                scene.remove(mesh);
-                world.removeBody(body);
-                // 从更新数组中移除
-                const idx = objectsToUpdate.findIndex(o => o.mesh === mesh);
-                if(idx > -1) objectsToUpdate.splice(idx, 1);
-                
-                // 检查是否全部消灭
-                pigs = pigs.filter(p => p.mesh !== mesh);
-                if(pigs.length === 0) {
-                    setTimeout(() => alert("胜利！所有猪都被消灭了！"), 100);
-                }
-            }, 0);
-        }
-
-        function resetGame() {
-            // 清理现有物体
-            for(const obj of objectsToUpdate) {
-                scene.remove(obj.mesh);
-                world.removeBody(obj.body);
-            }
-            objectsToUpdate = [];
-            pigs = [];
-            score = 0;
-            document.getElementById('score-display').innerText = score;
-
-            // 重建
-            createGround(); // 地面 body 之前被删了吗？如果没有，这步要小心重复添加
-            // 简单的做法：只删除 dynamic bodies
-            // 更好的做法：刷新页面或重新调用初始化逻辑。
-            // 这里简单处理：重建 Level 和 Bird
-            
-            // 注意：createGround 里的 static body 其实没被清除，因为上面的循环清的是 objectsToUpdate
-            // 而 ground body 没在那个数组里。所以不需要重建 Ground 和 Slingshot。
-            
-            createLevel();
-            createBird();
-        }
-
-        // --- 输入处理 ---
-
-        function getRayIntersection(clientX, clientY) {
-            mouse.x = (clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
-            raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObject(dragPlane);
-            if(intersects.length > 0) return intersects[0].point;
-            return null;
-        }
-
-        function onMouseDown(event) {
-            if(birdFired) return;
-            const point = getRayIntersection(event.clientX, event.clientY);
-            if (point) {
-                // 检查是否点到了鸟附近
-                const dist = point.distanceTo(birdMesh.position);
-                if(dist < 3) {
-                    isDragging = true;
-                    controls && (controls.enabled = false); // 禁用轨道控制器
-                }
-            }
-        }
-        
-        // 触摸开始
-        function onTouchStart(event) {
-             if(event.touches.length > 0) {
-                 const t = event.touches[0];
-                 // 模拟 MouseDown 逻辑
-                 if(birdFired) return;
-                 const point = getRayIntersection(t.clientX, t.clientY);
-                 if (point) {
-                     const dist = point.distanceTo(birdMesh.position);
-                     if(dist < 3) {
-                         isDragging = true;
-                         controls && (controls.enabled = false);
-                     }
-                 }
-             }
-        }
-
-        function onMouseMove(event) {
-            if (!isDragging) return;
-            const point = getRayIntersection(event.clientX, event.clientY);
-            if(point) {
-                updateDragPosition(point);
-            }
-        }
-        
-        function onTouchMove(event) {
-            if(!isDragging) return;
-            event.preventDefault(); // 防止滚动
-            const t = event.touches[0];
-            const point = getRayIntersection(t.clientX, t.clientY);
-            if(point) updateDragPosition(point);
-        }
-
-        function updateDragPosition(targetPoint) {
-            // 限制拉拽距离
-            const anchor = new THREE.Vector3(slingshotPos.x, slingshotPos.y + 1.5, slingshotPos.z);
-            let dir = new THREE.Vector3().subVectors(targetPoint, anchor);
-            // 锁定 Z 轴，只允许 XY 平面移动 (或是稍微允许一点 Z)
-            dir.z = 0; 
-            
-            const len = dir.length();
-            const maxDrag = 4;
-            
-            if(len > maxDrag) {
-                dir.normalize().multiplyScalar(maxDrag);
-            }
-            
-            // 更新鸟的视觉位置
-            birdMesh.position.copy(anchor).add(dir);
-            // 让鸟看着发射方向
-            birdMesh.lookAt(anchor);
-        }
-
-        function onMouseUp() {
-            if (isDragging) {
-                isDragging = false;
-                controls && (controls.enabled = true);
-
-                // 计算发射向量
-                const anchor = new THREE.Vector3(slingshotPos.x, slingshotPos.y + 1.5, slingshotPos.z);
-                const pullVector = new THREE.Vector3().subVectors(anchor, birdMesh.position);
-                
-                // 力度系数
-                const forceMultiplier = 8; 
-                const velocity = pullVector.multiplyScalar(forceMultiplier);
-
-                fireBird(birdMesh.position, new CANNON.Vec3(velocity.x, velocity.y, velocity.z));
-            }
-        }
-
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        // --- 游戏循环 ---
+        // --- 动画逻辑 ---
+        const clock = new THREE.Clock();
+        const speed = 10;
 
         function animate() {
             requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
 
-            const time = performance.now() / 1000;
-            if (!lastCallTime) {
-                world.step(timeStep);
-            } else {
-                const dt = time - lastCallTime;
-                world.step(timeStep, dt, 3);
-            }
-            lastCallTime = time;
+            // === 羊驼动画 (奔跑) ===
+            const aLegAngle = Math.sin(time * speed) * 0.6;
+            aLegFL.rotation.x = aLegAngle; aLegBL.rotation.x = aLegAngle * 0.8;
+            aLegFR.rotation.x = -aLegAngle; aLegBR.rotation.x = -aLegAngle * 0.8;
+            aLegFL.position.y = 0.5 + Math.sin(time * speed * 2) * 0.2;
+            aLegFR.position.y = 0.5 + Math.sin(time * speed * 2 + Math.PI) * 0.2;
+            alpaca.position.y = 1.0 + Math.sin(time * speed * 2) * 0.15;
+            neckGroup.rotation.x = Math.sin(time * speed + Math.PI/2) * 0.1 - 0.2;
 
-            // 同步物理和视觉
-            for (const obj of objectsToUpdate) {
-                obj.mesh.position.copy(obj.body.position);
-                obj.mesh.quaternion.copy(obj.body.quaternion);
-            }
+            // === 巨型泰克翼龙动画 (飞行) ===
+            const flySpeed = 2.5; // 巨型生物扇翅膀较慢但有力
+            
+            // 1. 翅膀扇动 (Flapping)
+            // 分为上臂、前臂、手指的三段式扇动
+            const flapBase = Math.sin(time * flySpeed);
+            
+            // 左翼
+            wingLGroup.rotation.z = flapBase * 0.4 - 0.2; // 整体上下
+            wingL.children[0].children[0].rotation.z = flapBase * 0.2; // 前臂微调
+            
+            // 右翼 (镜像)
+            wingRGroup.rotation.z = -flapBase * 0.4 + 0.2;
+            wingR.children[0].children[0].rotation.z = -flapBase * 0.2;
 
-            // 简单的相机跟随 (可选)
-            // if(birdFired && birdMesh.position.x > 0 && birdMesh.position.x < 30) {
-            //     camera.position.x = THREE.MathUtils.lerp(camera.position.x, birdMesh.position.x, 0.1);
-            //     camera.lookAt(birdMesh.position.x, 5, 0);
-            // } else if (!birdFired) {
-            //     // 回归原位
-            //     // camera.position.set(0, 10, 35);
-            //     // camera.lookAt(0, 5, 0);
-            // }
+            // 2. 身体浮动
+            quetzal.position.y = 12 + Math.sin(time * 1.5) * 1.5;
+            
+            // 3. 颈部动态 (S型蠕动)
+            neckSegments.forEach((seg, i) => {
+                seg.rotation.z = Math.sin(time * 2 + i * 0.5) * 0.05;
+            });
 
+            // 4. 盘旋移动 (Circle)
+            const circleRadius = 10;
+            quetzal.position.x = Math.sin(time * 0.5) * circleRadius;
+            quetzal.position.z = Math.cos(time * 0.5) * circleRadius;
+            quetzal.rotation.y = -time * 0.5 - Math.PI / 2; // 面向切线方向
+
+            // === 环境 ===
+            ground.rotation.x -= 0.03;
+            clouds.forEach((c, i) => {
+                c.position.x -= 0.1;
+                if(c.position.x < -35) c.position.x = 35;
+            });
+
+            controls.update();
             renderer.render(scene, camera);
         }
+
+        document.getElementById('loading').style.display = 'none';
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
     </script>
 </body>
 </html>
