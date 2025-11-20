@@ -3,474 +3,351 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>机房机柜2D可视化 (Vue + Fabric.js)</title>
-    <!-- 引入 Vue 3 -->
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <!-- 引入 Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 引入 FontAwesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- 引入 Fabric.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
-
+    <title>Detailed 3D Running Alpaca (ESM)</title>
     <style>
         body {
-            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
-            background-color: #f8fafc;
+            margin: 0;
+            overflow: hidden;
+            background-color: #ADD8E6;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
-
-        /* 左侧树状菜单样式 */
-        .tree-item.active {
-            background-color: #4ade80;
-            color: #000;
+        #canvas-container {
+            width: 100%;
+            height: 100vh;
+            display: block;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
             font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+            pointer-events: none;
+            transition: opacity 0.5s;
         }
-
-        /* Canvas 容器 */
-        .canvas-container-wrapper {
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-            border-radius: 4px;
-            background-color: white;
-            transition: transform 0.2s;
+        .controls-info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            pointer-events: none;
+            user-select: none;
+            max-width: 250px;
         }
-        .canvas-container-wrapper:hover {
-            transform: translateY(-2px);
+        h1 {
+            margin: 0 0 5px 0;
+            font-size: 18px;
+            color: #333;
+        }
+        p {
+            margin: 0;
+            font-size: 14px;
+            color: #666;
         }
     </style>
 </head>
 <body>
 
-<div id="app" class="h-screen flex flex-col md:flex-row overflow-hidden">
-    
-    <!-- 左侧导航栏 (保持设计图样式) -->
-    <aside class="w-64 bg-gray-100 border-r border-gray-300 flex flex-col shrink-0 shadow-md z-10">
-        <div class="p-4 border-b border-gray-300 bg-gray-200 font-bold text-lg text-gray-700 flex items-center">
-            <i class="fas fa-hospital-alt mr-2 text-blue-600"></i> XX医院
-        </div>
-        
-        <div class="flex-1 overflow-y-auto p-2 space-y-1 text-sm select-none">
-            <tree-item label="核心机房" :level="0"></tree-item>
-            <tree-item label="灾备机房" :level="0"></tree-item>
-            
-            <tree-item label="1号楼" :level="0"></tree-item>
-            <div class="relative">
-                <tree-item label="2号楼" :level="0" :expanded="true"></tree-item>
-                <div class="ml-4 border-l border-gray-300 pl-2 space-y-1">
-                    <tree-item label="-1层弱电间" :level="1"></tree-item>
-                    <tree-item label="-2层弱电间" :level="1"></tree-item>
-                    <tree-item label="3层弱电间" :level="1" :active="true"></tree-item>
-                    <tree-item label="-4层弱电间" :level="1"></tree-item>
-                </div>
-            </div>
-            
-            <tree-item label="3号楼" :level="0"></tree-item>
-            <tree-item label="4号楼" :level="0"></tree-item>
-        </div>
+    <div id="canvas-container"></div>
+    <div id="loading">加载中...</div>
+    <div class="controls-info">
+        <h1>精细化羊驼 (Detailed Alpaca)</h1>
+        <p>🖱️ 左键拖拽：旋转视角</p>
+        <p>🖱️ 右键拖拽：平移视角</p>
+        <p>🖱️ 滚轮：缩放</p>
+    </div>
 
-        <div class="p-4 text-xs text-red-500 italic border-t border-gray-200 bg-gray-50">
-            <p class="mb-2">弱电间和机房的场所资源树，按楼宇布局显示，自动排序。</p>
-        </div>
-    </aside>
-
-    <!-- 右侧主内容区 -->
-    <main class="flex-1 flex flex-col min-w-0 bg-white relative">
-        
-        <!-- 顶部页签 -->
-        <div class="flex border-b border-gray-300 bg-gray-50 shadow-sm z-10">
-            <div 
-                v-for="tab in tabs" 
-                :key="tab"
-                @click="currentTab = tab"
-                :class="['px-6 py-3 cursor-pointer text-sm font-medium border-r border-gray-200 transition-colors relative', 
-                         currentTab === tab ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100']"
-            >
-                {{ tab }}
-                <div v-if="currentTab === tab" class="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600"></div>
-            </div>
-        </div>
-
-        <!-- 工具栏区域 (参照设计图布局) -->
-        <div class="p-4 border-b border-gray-200 flex flex-wrap gap-4 items-start bg-white z-10">
-            <div class="flex gap-4">
-                <!-- 待上架设备 -->
-                <div class="flex flex-col gap-1">
-                    <span class="text-xs text-gray-500">待上架设备</span>
-                    <div class="flex gap-2">
-                         <div class="w-40 border border-blue-300 rounded h-32 overflow-y-auto text-xs p-1 bg-white shadow-inner">
-                            <div class="font-bold text-center bg-blue-50 mb-1 p-1">设备类型-选择</div>
-                            <div v-for="type in deviceTypes" :key="type" class="p-1 hover:bg-blue-100 cursor-pointer rounded flex items-center">
-                                <div class="w-2 h-2 rounded-full bg-gray-300 mr-2"></div>{{ type }}
-                            </div>
-                        </div>
-                        <div class="w-40 border border-blue-300 rounded h-32 overflow-y-auto text-xs p-1 bg-white shadow-inner">
-                             <div class="font-bold text-center bg-blue-50 mb-1 p-1">设备型号-选择</div>
-                             <div class="p-1 text-gray-500">H3C S5130S-28S-EI</div>
-                             <div class="p-1 text-gray-500">Huawei AR2220</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 说明文字 -->
-            <div class="flex-1 flex flex-col items-end justify-center text-xs text-red-400 space-y-1 pt-4">
-                 <p>弱电间：显示所有机柜。此图为弱电间的布局。</p>
-                 <p>通常不会超过3个机柜，绝大多数情况是1~2个机柜。</p>
-            </div>
-        </div>
-
-        <!-- 机柜展示区 (Canvas 渲染区域) -->
-        <div class="flex-1 bg-gray-100 overflow-auto p-8 flex justify-center items-start gap-12 relative">
-            
-            <!-- 机柜组件 -->
-            <rack-canvas 
-                v-for="rack in racks" 
-                :key="rack.id" 
-                :rack-data="rack"
-            ></rack-canvas>
-
-        </div>
-
-        <!-- 底部操作栏 -->
-        <div class="h-14 border-t border-gray-200 bg-white flex items-center justify-end px-8 gap-4 shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-            <button class="px-5 py-2 border border-gray-400 text-gray-700 text-sm rounded hover:bg-gray-100 shadow-sm transition-all active:scale-95">
-                关闭背面
-            </button>
-            <button class="px-5 py-2 border border-gray-400 text-gray-700 text-sm rounded hover:bg-gray-100 shadow-sm transition-all active:scale-95">
-                打开背面
-            </button>
-        </div>
-
-    </main>
-</div>
-
-<script>
-    const { createApp, ref, onMounted, watch, onBeforeUnmount } = Vue;
-
-    // ----------------------------------------
-    // 组件：树节点
-    // ----------------------------------------
-    const TreeItem = {
-        props: ['label', 'level', 'expanded', 'active'],
-        template: `
-            <div 
-                class="px-3 py-2 cursor-pointer hover:bg-gray-200 flex items-center text-gray-700 transition-colors select-none"
-                :class="{'active': active}"
-            >
-                <span :style="{ width: (level * 16) + 'px' }"></span>
-                <i v-if="level === 0" class="fas fa-building mr-2 text-gray-400 text-xs"></i>
-                <i v-else class="fas fa-server mr-2 text-gray-400 text-xs"></i>
-                {{ label }}
-            </div>
-        `
-    };
-
-    // ----------------------------------------
-    // 组件：Fabric.js 机柜 Canvas
-    // ----------------------------------------
-    const RackCanvas = {
-        props: ['rackData'],
-        template: `
-            <div class="flex flex-col items-center">
-                <div class="text-gray-700 font-bold mb-3 text-lg tracking-wide">{{ rackData.name }}</div>
-                <div class="canvas-container-wrapper border border-gray-300 bg-white p-1">
-                    <canvas :id="'c-' + rackData.id" width="260" height="640"></canvas>
-                </div>
-            </div>
-        `,
-        setup(props) {
-            let canvas = null;
-            const U_HEIGHT = 14; // 1U 的高度 (像素)
-            const RACK_WIDTH = 240;
-            const RACK_HEIGHT = 42 * U_HEIGHT + 40; // 42U + 顶部底部余量
-            const RAIL_WIDTH = 15;
-            const INNER_WIDTH = RACK_WIDTH - (RAIL_WIDTH * 2);
-            
-            // 初始化 Fabric Canvas
-            const initCanvas = () => {
-                const canvasId = 'c-' + props.rackData.id;
-                canvas = new fabric.Canvas(canvasId, {
-                    width: RACK_WIDTH + 20, // 增加一些padding
-                    height: RACK_HEIGHT,
-                    selection: false, // 禁用框选
-                    hoverCursor: 'pointer',
-                    backgroundColor: '#f3f4f6'
-                });
-
-                renderRack();
-            };
-
-            // 渲染机柜主体
-            const renderRack = () => {
-                if (!canvas) return;
-                canvas.clear();
-                canvas.setBackgroundColor('#f3f4f6', canvas.renderAll.bind(canvas));
-
-                const offsetX = 10;
-                const offsetY = 20;
-
-                // 1. 绘制机柜外框
-                const frame = new fabric.Rect({
-                    left: offsetX,
-                    top: offsetY,
-                    width: RACK_WIDTH,
-                    height: 42 * U_HEIGHT,
-                    fill: '#fff',
-                    stroke: '#666',
-                    strokeWidth: 2,
-                    selectable: false
-                });
-                canvas.add(frame);
-
-                // 2. 绘制左右立柱 (Rails)
-                const leftRail = new fabric.Rect({
-                    left: offsetX,
-                    top: offsetY,
-                    width: RAIL_WIDTH,
-                    height: 42 * U_HEIGHT,
-                    fill: '#e5e7eb',
-                    stroke: '#d1d5db',
-                    strokeWidth: 1,
-                    selectable: false
-                });
-
-                const rightRail = new fabric.Rect({
-                    left: offsetX + RACK_WIDTH - RAIL_WIDTH,
-                    top: offsetY,
-                    width: RAIL_WIDTH,
-                    height: 42 * U_HEIGHT,
-                    fill: '#e5e7eb',
-                    stroke: '#d1d5db',
-                    strokeWidth: 1,
-                    selectable: false
-                });
-                canvas.add(leftRail, rightRail);
-
-                // 3. 绘制U刻度和网格线
-                for (let i = 1; i <= 42; i++) {
-                    const yPos = offsetY + (42 - i) * U_HEIGHT;
-                    
-                    // 横向分割线
-                    const line = new fabric.Line([offsetX + RAIL_WIDTH, yPos, offsetX + RACK_WIDTH - RAIL_WIDTH, yPos], {
-                        stroke: '#f0f0f0',
-                        strokeWidth: 1,
-                        selectable: false,
-                        evented: false
-                    });
-                    canvas.add(line);
-
-                    // U数标尺
-                    if (i % 1 === 0) { // 每个都显示，或者 i % 5 === 0 简化显示
-                        const textL = new fabric.Text(i.toString(), {
-                            left: offsetX + 2,
-                            top: yPos + 2,
-                            fontSize: 9,
-                            fill: i % 5 === 0 ? '#000' : '#999',
-                            fontFamily: 'Arial',
-                            selectable: false
-                        });
-                        const textR = new fabric.Text(i.toString(), {
-                            left: offsetX + RACK_WIDTH - RAIL_WIDTH + 2,
-                            top: yPos + 2,
-                            fontSize: 9,
-                            fill: i % 5 === 0 ? '#000' : '#999',
-                            fontFamily: 'Arial',
-                            selectable: false
-                        });
-                        canvas.add(textL, textR);
-                    }
-                }
-
-                // 4. 渲染设备
-                props.rackData.devices.forEach(device => {
-                    drawDevice(device, offsetX, offsetY);
-                });
-            };
-
-            // 绘制单个设备
-            const drawDevice = (device, offsetX, offsetY) => {
-                // 计算位置: Y轴坐标 = 总高度 - (起始U + 高度) * U单位 + 偏移
-                // 注意：Fabric 坐标系左上角是(0,0)。42U在最上面，1U在最下面。
-                // 我们的循环逻辑： i=42 是 top:0. i=1 是 top: max.
-                // 设备的 Top U = device.u + device.height - 1
-                // 屏幕 Y = offsetY + (42 - (device.u + device.height - 1)) * U_HEIGHT
-                // 简化一下： 42U的顶端在 offsetY. 41U的顶端在 offsetY + 1*U_HEIGHT.
-                // U的顶端Y = offsetY + (42 - U) * U_HEIGHT
-                // 设备的Top位置对应的是 (device.u + device.height - 1) 这个U的顶端。
-                
-                const topU = device.u + device.height - 1;
-                const pixelY = offsetY + (42 - topU - 1) * U_HEIGHT; // -1 是因为u从1开始计数，但高度计算需要对齐
-
-                const deviceWidth = INNER_WIDTH - 2; // 稍微留点缝隙
-                const deviceHeight = device.height * U_HEIGHT - 2;
-                const deviceLeft = offsetX + RAIL_WIDTH + 1;
-
-                let deviceGroup;
-
-                // 通用属性
-                const commonProps = {
-                    left: deviceLeft,
-                    top: pixelY + 1, // +1 gap
-                    selectable: true,
-                    hoverCursor: 'pointer',
-                    subTargetCheck: true
-                };
-
-                // 根据设备类型绘制不同外观
-                if (device.type === 'server') {
-                    // --- 服务器样式 ---
-                    const rect = new fabric.Rect({
-                        width: deviceWidth, height: deviceHeight,
-                        fill: '#2d2d2d', stroke: '#111', rx: 2, ry: 2
-                    });
-                    
-                    // 把手
-                    const handleL = new fabric.Rect({ left: 2, top: 2, width: 4, height: deviceHeight-4, fill: '#3b82f6' });
-                    const handleR = new fabric.Rect({ left: deviceWidth-6, top: 2, width: 4, height: deviceHeight-4, fill: '#3b82f6' });
-                    
-                    // 硬盘格栅模拟
-                    const gridLines = [];
-                    for(let k=1; k<4; k++) {
-                        gridLines.push(new fabric.Rect({
-                            left: 10 + k*25, top: 4, width: 20, height: deviceHeight-8, 
-                            fill: '#1a1a1a', stroke: '#444'
-                        }));
-                    }
-
-                    // 指示灯
-                    const led = new fabric.Circle({ radius: 2, fill: '#22c55e', left: deviceWidth-15, top: deviceHeight/2 - 2 });
-
-                    deviceGroup = new fabric.Group([rect, handleL, handleR, ...gridLines, led], commonProps);
-
-                } else if (device.type === 'switch') {
-                    // --- 交换机样式 ---
-                    const rect = new fabric.Rect({
-                        width: deviceWidth, height: deviceHeight,
-                        fill: '#374151', stroke: '#4b5563'
-                    });
-                    
-                    // 端口模拟
-                    const ports = [];
-                    for(let p=0; p<12; p++) {
-                        ports.push(new fabric.Rect({
-                            left: 10 + p*8, top: 4, width: 5, height: 4, fill: '#111', stroke:'#666', strokeWidth:0.5
-                        }));
-                        ports.push(new fabric.Rect({
-                            left: 10 + p*8, top: 10, width: 5, height: 4, fill: '#111', stroke:'#666', strokeWidth:0.5
-                        }));
-                    }
-                    const logo = new fabric.Text("H3C", { fontSize: 8, fill: '#9ca3af', left: deviceWidth - 25, top: 5 });
-                    
-                    deviceGroup = new fabric.Group([rect, ...ports, logo], commonProps);
-
-                } else if (device.type === 'reserved') {
-                    // --- 预留位 (蓝色) ---
-                    const rect = new fabric.Rect({
-                        width: deviceWidth, height: deviceHeight,
-                        fill: '#e0f2fe', stroke: '#7dd3fc', strokeDashArray: [5, 5]
-                    });
-                    const text = new fabric.Text(device.name, {
-                        fontSize: 10, fill: '#0284c7', originX: 'center', originY: 'center',
-                        left: deviceWidth/2, top: deviceHeight/2
-                    });
-                    deviceGroup = new fabric.Group([rect, text], commonProps);
-                } else {
-                    // --- 默认/配线架 ---
-                    const rect = new fabric.Rect({
-                        width: deviceWidth, height: deviceHeight,
-                        fill: '#4b5563', stroke: '#333'
-                    });
-                    const label = new fabric.Text(device.name, {
-                        fontSize: 10, fill: '#fff', left: 5, top: deviceHeight/2 - 5
-                    });
-                    deviceGroup = new fabric.Group([rect, label], commonProps);
-                }
-
-                // 添加 Tooltip 事件
-                deviceGroup.on('mouseover', () => {
-                    // Fabric本身没有Tooltip，可以使用Text对象临时显示，或者触发Vue事件
-                    // 这里简单演示添加一个悬浮文字
-                    deviceGroup._originalShadow = deviceGroup.shadow;
-                    deviceGroup.set({ shadow: new fabric.Shadow({ color: 'rgba(0,0,0,0.5)', blur: 10 }) });
-                    canvas.requestRenderAll();
-                });
-
-                deviceGroup.on('mouseout', () => {
-                    deviceGroup.set({ shadow: deviceGroup._originalShadow });
-                    canvas.requestRenderAll();
-                });
-                
-                deviceGroup.on('mousedown', () => {
-                   alert(`设备详情:\n名称: ${device.name}\n型号: ${device.model}\n位置: ${device.u}U\n高度: ${device.height}U`); 
-                });
-
-                canvas.add(deviceGroup);
-            };
-
-            onMounted(() => {
-                // 稍微延迟以确保DOM渲染
-                setTimeout(initCanvas, 100);
-            });
-
-            return {};
+    <!-- 使用 Import Map 方式引入模块，这是现代 Three.js 的标准做法，彻底解决依赖问题 -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.146.0/examples/jsm/"
+            }
         }
-    };
+    </script>
 
-    // ----------------------------------------
-    // 主应用逻辑
-    // ----------------------------------------
-    createApp({
-        components: {
-            'tree-item': TreeItem,
-            'rack-canvas': RackCanvas
-        },
-        setup() {
-            const currentTab = ref('设备维护');
-            const tabs = ['机房全览', '设备维护', '线缆维护'];
-            const deviceTypes = [
-                '网络配线架', '光纤配线架', '交换机', '物理服务器', 
-                '虚拟化服务器', '超融合服务器', '集中存储', '光纤交换机'
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- 场景初始化 ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.Fog(0xADD8E6, 20, 100); 
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(10, 10, 15);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        // --- 控制器 ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 5;
+        controls.maxDistance = 50;
+
+        // --- 灯光 ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(15, 25, 15);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 70;
+        dirLight.shadow.bias = -0.001;
+        scene.add(dirLight);
+
+        // --- 材质 ---
+        const furColor = 0xF8F8E7; 
+        const furMaterial = new THREE.MeshStandardMaterial({ 
+            color: furColor, 
+            roughness: 0.8,
+            metalness: 0.1
+        });
+        
+        const skinColor = 0xC0846A; 
+        const skinMaterial = new THREE.MeshStandardMaterial({
+            color: skinColor,
+            roughness: 0.7,
+            metalness: 0.1
+        });
+
+        const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x1A1A1A });
+
+        // --- 创建羊驼模型 ---
+        const alpaca = new THREE.Group();
+        alpaca.position.y = 1.0; 
+
+        // 1. 身体 (Body)
+        const bodyPart1Geo = new THREE.CapsuleGeometry(1.5, 3, 10, 20);
+        const bodyPart1 = new THREE.Mesh(bodyPart1Geo, furMaterial);
+        bodyPart1.rotation.z = Math.PI / 2; 
+        bodyPart1.position.z = -0.5;
+        bodyPart1.castShadow = true;
+        bodyPart1.receiveShadow = true;
+        alpaca.add(bodyPart1);
+
+        const bodyPart2Geo = new THREE.SphereGeometry(1.6, 16, 16);
+        const bodyPart2 = new THREE.Mesh(bodyPart2Geo, furMaterial);
+        bodyPart2.position.set(1.5, 0, -0.5);
+        bodyPart2.castShadow = true;
+        bodyPart2.receiveShadow = true;
+        alpaca.add(bodyPart2);
+
+        // 2. 脖子 (Neck)
+        const neckGroup = new THREE.Group();
+        neckGroup.position.set(-1.8, 1, 0); 
+        alpaca.add(neckGroup);
+
+        const neckGeo = new THREE.CylinderGeometry(0.7, 0.8, 4, 16);
+        const neck = new THREE.Mesh(neckGeo, furMaterial);
+        neck.position.y = 2; 
+        neck.castShadow = true;
+        neckGroup.add(neck);
+
+        // 3. 头部 (Head)
+        const headGroup = new THREE.Group();
+        headGroup.position.y = 4.2; 
+        neckGroup.add(headGroup);
+
+        const headBaseGeo = new THREE.SphereGeometry(1, 16, 16);
+        const headBase = new THREE.Mesh(headBaseGeo, furMaterial);
+        headBase.position.z = -0.2;
+        headBase.castShadow = true;
+        headGroup.add(headBase);
+
+        const snoutGeo = new THREE.CapsuleGeometry(0.5, 0.8, 8, 16);
+        const snout = new THREE.Mesh(snoutGeo, skinMaterial);
+        snout.rotation.x = Math.PI / 2;
+        snout.position.set(0, -0.3, 0.8);
+        snout.castShadow = true;
+        headGroup.add(snout);
+
+        // 眼睛
+        const eyeGeo = new THREE.SphereGeometry(0.12, 8, 8);
+        const eyeL = new THREE.Mesh(eyeGeo, eyeMaterial);
+        eyeL.position.set(0.4, 0.2, 0.7);
+        headGroup.add(eyeL);
+        
+        const eyeR = new THREE.Mesh(eyeGeo, eyeMaterial);
+        eyeR.position.set(-0.4, 0.2, 0.7);
+        headGroup.add(eyeR);
+
+        // 耳朵
+        const earGeo = new THREE.CapsuleGeometry(0.15, 0.8, 4, 8);
+        const earL = new THREE.Mesh(earGeo, skinMaterial);
+        earL.position.set(0.6, 0.8, -0.2);
+        earL.rotation.z = -0.5;
+        headGroup.add(earL);
+
+        const earR = new THREE.Mesh(earGeo, skinMaterial);
+        earR.position.set(-0.6, 0.8, -0.2);
+        earR.rotation.z = 0.5;
+        headGroup.add(earR);
+
+        // 4. 腿部
+        function createLeg(x, z, front) {
+            const legGroup = new THREE.Group();
+            legGroup.position.set(x, 0, z);
+
+            const upperLegGeo = new THREE.CapsuleGeometry(0.4, 1.8, 8, 16);
+            const upperLeg = new THREE.Mesh(upperLegGeo, furMaterial);
+            upperLeg.position.y = -0.9;
+            upperLeg.castShadow = true;
+            legGroup.add(upperLeg);
+            
+            const lowerLegGeo = new THREE.CapsuleGeometry(0.35, 1.5, 8, 16);
+            const lowerLeg = new THREE.Mesh(lowerLegGeo, skinMaterial);
+            lowerLeg.position.y = -2.5; 
+            lowerLeg.castShadow = true;
+            legGroup.add(lowerLeg);
+
+            const hoofGeo = new THREE.BoxGeometry(0.5, 0.4, 0.5);
+            const hoof = new THREE.Mesh(hoofGeo, new THREE.MeshStandardMaterial({color: 0x4B372F, roughness: 0.7}));
+            hoof.position.y = -3.4;
+            hoof.castShadow = true;
+            legGroup.add(hoof);
+
+            return legGroup;
+        }
+
+        const legFL = createLeg(-1.2, 0.8, true); 
+        const legFR = createLeg(-1.2, -0.8, true); 
+        const legBL = createLeg(1.2, 0.8, false); 
+        const legBR = createLeg(1.2, -0.8, false); 
+
+        alpaca.add(legFL);
+        alpaca.add(legFR);
+        alpaca.add(legBL);
+        alpaca.add(legBR);
+
+        // 5. 尾巴
+        const tailGroup = new THREE.Group();
+        tailGroup.position.set(2.2, 0.8, 0);
+        alpaca.add(tailGroup);
+
+        const tailGeo = new THREE.SphereGeometry(0.6, 12, 12);
+        const tail = new THREE.Mesh(tailGeo, furMaterial);
+        tail.rotation.x = Math.PI / 6;
+        tail.castShadow = true;
+        tailGroup.add(tail);
+
+        scene.add(alpaca);
+
+        // --- 环境 ---
+        const groundGeo = new THREE.CylinderGeometry(35, 35, 80, 32);
+        const groundMat = new THREE.MeshStandardMaterial({ 
+            color: 0x7CFC00, 
+            roughness: 0.9
+        });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.z = Math.PI / 2;
+        ground.position.y = -40; 
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // 云朵
+        function createDetailedCloud(x, y, z, scale) {
+            const cloudGroup = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({ color: 0xF0F8FF, roughness: 0.5 });
+
+            const parts = [
+                { radius: 1.5, x: 0, y: 0, z: 0 },
+                { radius: 1.2, x: 1.2, y: 0.3, z: -0.5 },
+                { radius: 1.0, x: -1.0, y: -0.2, z: 0.3 },
+                { radius: 0.8, x: 0.5, y: -0.5, z: 1.0 },
+                { radius: 1.3, x: -0.8, y: 0.5, z: -1.2 }
             ];
 
-            const racks = ref([
-                {
-                    id: 'rack-1',
-                    name: '2-3F-1机柜',
-                    devices: [
-                        { u: 41, height: 1, type: 'patch', name: 'ODF光配', model: 'Generic ODF' },
-                        { u: 39, height: 1, type: 'switch', name: '交换机 A', model: 'H3C S5130' },
-                        { u: 38, height: 1, type: 'switch', name: '交换机 B', model: 'H3C S5130' },
-                        { u: 30, height: 4, type: 'reserved', name: '预留空间', model: 'Reserved' },
-                        { u: 24, height: 2, type: 'server', name: '业务服务器 01', model: 'Dell R740' },
-                        { u: 22, height: 2, type: 'server', name: '业务服务器 02', model: 'Dell R740' },
-                        { u: 20, height: 2, type: 'server', name: '业务服务器 03', model: 'Dell R740' },
-                        { u: 18, height: 2, type: 'server', name: '超融合 01', model: 'HCI Node' },
-                        { u: 16, height: 2, type: 'server', name: '超融合 02', model: 'HCI Node' },
-                        { u: 14, height: 2, type: 'server', name: '超融合 03', model: 'HCI Node' },
-                        { u: 10, height: 4, type: 'reserved', name: '扩展预留', model: 'Reserved' },
-                        { u: 4, height: 2, type: 'server', name: '存储网关', model: 'Gateway' }
-                    ]
-                },
-                {
-                    id: 'rack-2',
-                    name: '2-3F-2机柜',
-                    devices: [
-                         { u: 42, height: 1, type: 'patch', name: '综合布线', model: 'Patch Panel' },
-                         { u: 28, height: 4, type: 'reserved', name: '预留', model: 'Reserved' },
-                         { u: 18, height: 4, type: 'reserved', name: '预留', model: 'Reserved' },
-                         { u: 6, height: 2, type: 'server', name: '备份一体机', model: 'Backup' },
-                    ]
-                }
-            ]);
-
-            return {
-                currentTab,
-                tabs,
-                deviceTypes,
-                racks
-            };
+            parts.forEach(p => {
+                const geo = new THREE.SphereGeometry(p.radius, 16, 16);
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(p.x, p.y, p.z);
+                cloudGroup.add(mesh);
+            });
+            cloudGroup.position.set(x, y, z);
+            cloudGroup.scale.set(scale, scale, scale);
+            scene.add(cloudGroup);
+            return cloudGroup;
         }
-    }).mount('#app');
-</script>
 
+        const clouds = [
+            createDetailedCloud(18, 15, -10, 1.8),
+            createDetailedCloud(-15, 18, -15, 2.2),
+            createDetailedCloud(0, 20, 10, 1.5),
+            createDetailedCloud(-20, 12, 5, 2.0)
+        ];
+
+        // --- 动画逻辑 ---
+        const clock = new THREE.Clock();
+        const runSpeed = 10;
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = clock.getElapsedTime();
+            
+            const legSwingAngle = Math.sin(time * runSpeed) * 0.6;
+            
+            legFL.rotation.x = legSwingAngle;
+            legBL.rotation.x = legSwingAngle * 0.8; 
+            legFL.position.y = 0.5 + Math.sin(time * runSpeed * 2) * 0.2; 
+
+            legFR.rotation.x = legSwingAngle * -1;
+            legBR.rotation.x = legSwingAngle * -0.8;
+            legFR.position.y = 0.5 + Math.sin(time * runSpeed * 2 + Math.PI) * 0.2;
+
+            alpaca.position.y = 1.0 + Math.sin(time * runSpeed * 2) * 0.15; 
+
+            alpaca.rotation.x = Math.sin(time * runSpeed * 2) * 0.05 + 0.1;
+
+            neckGroup.rotation.x = Math.sin(time * runSpeed + Math.PI / 2) * 0.1 - 0.2; 
+            headGroup.rotation.x = Math.cos(time * runSpeed * 1.2) * 0.1; 
+
+            tailGroup.rotation.z = Math.sin(time * runSpeed * 2.5) * 0.4;
+
+            ground.rotation.x -= 0.03;
+
+            clouds.forEach((cloud, index) => {
+                cloud.position.x -= 0.08 * (index + 1) * 0.5;
+                if (cloud.position.x < -35) {
+                    cloud.position.x = 35;
+                }
+            });
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // 隐藏加载文字
+        const loadingEl = document.getElementById('loading');
+        if (loadingEl) loadingEl.style.display = 'none';
+
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+
+    </script>
 </body>
 </html>
