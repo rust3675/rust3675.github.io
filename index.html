@@ -152,12 +152,15 @@
             world.gravity.set(0, -9.82, 0); // 重力
             world.broadphase = new CANNON.NaiveBroadphase();
             world.solver.iterations = 10;
+            
+            // 开启休眠：让静止的物体进入休眠状态，提高稳定性，防止微小抖动导致的倒塌
+            world.allowSleep = true;
 
             // 物理材质
             const defaultMaterial = new CANNON.Material('default');
             const defaultContactMaterial = new CANNON.ContactMaterial(defaultMaterial, defaultMaterial, {
-                friction: 0.4,
-                restitution: 0.3, // 弹性
+                friction: 0.5,    // 增加一点摩擦力，防止滑动
+                restitution: 0.2, // 稍微降低弹性，减少反弹
             });
             world.addContactMaterial(defaultContactMaterial);
 
@@ -303,9 +306,15 @@
 
             // 监听碰撞
             body.addEventListener("collide", (e) => {
+                // 修复逻辑：只有当鸟被发射后，才允许猪受到伤害
+                // 这防止了关卡初始化时物体微小位移或重叠导致的误判
+                if (!birdFired) return;
+
                 // 计算碰撞强度
                 const relativeVelocity = e.contact.getImpactVelocityAlongNormal();
-                if(Math.abs(relativeVelocity) > 5) {
+                
+                // 稍微提高了碰撞阈值 (5 -> 8)，防止轻轻一碰就死
+                if(Math.abs(relativeVelocity) > 8) {
                     removePig(mesh, body);
                 }
             });
@@ -337,30 +346,41 @@
 
         function createLevel() {
             const startX = 10;
-            const blockSize = 2;
             
-            // 建造一个简单的结构
-            // 底层柱子
-            createBox(startX, blockSize, 0, 1, 4, 1, 5, materials.stone);
-            createBox(startX + 6, blockSize, 0, 1, 4, 1, 5, materials.stone);
+            // --- 重新计算堆叠坐标，防止重叠 ---
             
-            // 横梁
-            createBox(startX + 3, 4.5, 0, 8, 0.5, 1, 2, materials.wood);
-
-            // 中间的小猪
-            createPig(startX + 3, 1, 0);
-
-            // 第二层
-            createBox(startX + 3, 5.5, 0, 1, 4, 1, 1, materials.wood);
-            createBox(startX + 3, 8, 0, 4, 0.5, 1, 1, materials.wood);
+            // 1. 底层柱子 (石头)
+            // 高度: 4, Y中心: 0 + 2 = 2. 顶部Y: 4
+            createBox(startX, 2, 0, 1, 4, 1, 5, materials.stone);
+            createBox(startX + 6, 2, 0, 1, 4, 1, 5, materials.stone);
             
-            // 顶层小猪
-            createPig(startX + 3, 9, 0);
+            // 2. 第一层横梁 (木头)
+            // 放置在Y=4之上. 高度: 0.5. Y中心: 4 + 0.25 = 4.25. 顶部Y: 4.5
+            createBox(startX + 3, 4.25, 0, 8, 0.5, 1, 2, materials.wood);
 
-            // 旁边的一堆箱子
+            // 中间的小猪 (在地面)
+            // 半径0.8. Y中心: 0.8
+            createPig(startX + 3, 0.8, 0);
+
+            // 3. 第二层柱子 (木头) - 单根
+            // 放置在Y=4.5之上. 高度: 4. Y中心: 4.5 + 2 = 6.5. 顶部Y: 8.5
+            createBox(startX + 3, 6.5, 0, 1, 4, 1, 1, materials.wood);
+
+            // 4. 顶层横梁 (木头)
+            // 放置在Y=8.5之上. 高度: 0.5. Y中心: 8.5 + 0.25 = 8.75. 顶部Y: 9
+            createBox(startX + 3, 8.75, 0, 4, 0.5, 1, 1, materials.wood);
+            
+            // 5. 顶层小猪
+            // 放置在Y=9之上. 半径0.8. Y中心: 9 + 0.8 = 9.8
+            createPig(startX + 3, 9.8, 0);
+
+            // 6. 旁边的一堆箱子 (右侧)
+            // 箱子1: 高2. Y中心: 1. 顶部Y: 2
             createBox(startX + 8, 1, 0, 2, 2, 2, 1, materials.wood);
+            // 箱子2: 放置在Y=2之上. 高2. Y中心: 2 + 1 = 3. 顶部Y: 4
             createBox(startX + 8, 3, 0, 2, 2, 2, 1, materials.wood);
-            createPig(startX + 8, 5, 0);
+            // 旁边的猪: 放置在Y=4之上. Y中心: 4 + 0.8 = 4.8
+            createPig(startX + 8, 4.8, 0);
         }
 
         function fireBird(position, velocity) {
