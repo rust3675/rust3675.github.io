@@ -1,19 +1,476 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>机房机柜2D可视化 (Vue + Fabric.js)</title>
+    <!-- 引入 Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- 引入 Fabric.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background-color: #f8fafc;
+        }
+
+        /* 左侧树状菜单样式 */
+        .tree-item.active {
+            background-color: #4ade80;
+            color: #000;
+            font-weight: bold;
+        }
+
+        /* Canvas 容器 */
+        .canvas-container-wrapper {
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            border-radius: 4px;
+            background-color: white;
+            transition: transform 0.2s;
+        }
+        .canvas-container-wrapper:hover {
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
 <body>
-<h1>Hello World</h1>
-<p>I'm hosted with GitHub Pages.</p>
 
-<a href="page01.html">Go to page01.html</a>
-<a href="page10.html">Go to page10.html</a>
-  <a href="page11.html">Go to page11.html</a>
-  <a href="page12.html">Go to page12.html</a>
-  <a href="page13.html">Go to page13.html</a>
-  <a href="page14.html">Go to page14.html</a>
-  <a href="page15.html">Go to page15.html</a>
-  <a href="page16.html">Go to page16.html</a>
-  <a href="page17.html">Go to page17.html</a>
+<div id="app" class="h-screen flex flex-col md:flex-row overflow-hidden">
+    
+    <!-- 左侧导航栏 (保持设计图样式) -->
+    <aside class="w-64 bg-gray-100 border-r border-gray-300 flex flex-col shrink-0 shadow-md z-10">
+        <div class="p-4 border-b border-gray-300 bg-gray-200 font-bold text-lg text-gray-700 flex items-center">
+            <i class="fas fa-hospital-alt mr-2 text-blue-600"></i> XX医院
+        </div>
+        
+        <div class="flex-1 overflow-y-auto p-2 space-y-1 text-sm select-none">
+            <tree-item label="核心机房" :level="0"></tree-item>
+            <tree-item label="灾备机房" :level="0"></tree-item>
+            
+            <tree-item label="1号楼" :level="0"></tree-item>
+            <div class="relative">
+                <tree-item label="2号楼" :level="0" :expanded="true"></tree-item>
+                <div class="ml-4 border-l border-gray-300 pl-2 space-y-1">
+                    <tree-item label="-1层弱电间" :level="1"></tree-item>
+                    <tree-item label="-2层弱电间" :level="1"></tree-item>
+                    <tree-item label="3层弱电间" :level="1" :active="true"></tree-item>
+                    <tree-item label="-4层弱电间" :level="1"></tree-item>
+                </div>
+            </div>
+            
+            <tree-item label="3号楼" :level="0"></tree-item>
+            <tree-item label="4号楼" :level="0"></tree-item>
+        </div>
 
-  
+        <div class="p-4 text-xs text-red-500 italic border-t border-gray-200 bg-gray-50">
+            <p class="mb-2">弱电间和机房的场所资源树，按楼宇布局显示，自动排序。</p>
+        </div>
+    </aside>
+
+    <!-- 右侧主内容区 -->
+    <main class="flex-1 flex flex-col min-w-0 bg-white relative">
+        
+        <!-- 顶部页签 -->
+        <div class="flex border-b border-gray-300 bg-gray-50 shadow-sm z-10">
+            <div 
+                v-for="tab in tabs" 
+                :key="tab"
+                @click="currentTab = tab"
+                :class="['px-6 py-3 cursor-pointer text-sm font-medium border-r border-gray-200 transition-colors relative', 
+                         currentTab === tab ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100']"
+            >
+                {{ tab }}
+                <div v-if="currentTab === tab" class="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600"></div>
+            </div>
+        </div>
+
+        <!-- 工具栏区域 (参照设计图布局) -->
+        <div class="p-4 border-b border-gray-200 flex flex-wrap gap-4 items-start bg-white z-10">
+            <div class="flex gap-4">
+                <!-- 待上架设备 -->
+                <div class="flex flex-col gap-1">
+                    <span class="text-xs text-gray-500">待上架设备</span>
+                    <div class="flex gap-2">
+                         <div class="w-40 border border-blue-300 rounded h-32 overflow-y-auto text-xs p-1 bg-white shadow-inner">
+                            <div class="font-bold text-center bg-blue-50 mb-1 p-1">设备类型-选择</div>
+                            <div v-for="type in deviceTypes" :key="type" class="p-1 hover:bg-blue-100 cursor-pointer rounded flex items-center">
+                                <div class="w-2 h-2 rounded-full bg-gray-300 mr-2"></div>{{ type }}
+                            </div>
+                        </div>
+                        <div class="w-40 border border-blue-300 rounded h-32 overflow-y-auto text-xs p-1 bg-white shadow-inner">
+                             <div class="font-bold text-center bg-blue-50 mb-1 p-1">设备型号-选择</div>
+                             <div class="p-1 text-gray-500">H3C S5130S-28S-EI</div>
+                             <div class="p-1 text-gray-500">Huawei AR2220</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 说明文字 -->
+            <div class="flex-1 flex flex-col items-end justify-center text-xs text-red-400 space-y-1 pt-4">
+                 <p>弱电间：显示所有机柜。此图为弱电间的布局。</p>
+                 <p>通常不会超过3个机柜，绝大多数情况是1~2个机柜。</p>
+            </div>
+        </div>
+
+        <!-- 机柜展示区 (Canvas 渲染区域) -->
+        <div class="flex-1 bg-gray-100 overflow-auto p-8 flex justify-center items-start gap-12 relative">
+            
+            <!-- 机柜组件 -->
+            <rack-canvas 
+                v-for="rack in racks" 
+                :key="rack.id" 
+                :rack-data="rack"
+            ></rack-canvas>
+
+        </div>
+
+        <!-- 底部操作栏 -->
+        <div class="h-14 border-t border-gray-200 bg-white flex items-center justify-end px-8 gap-4 shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            <button class="px-5 py-2 border border-gray-400 text-gray-700 text-sm rounded hover:bg-gray-100 shadow-sm transition-all active:scale-95">
+                关闭背面
+            </button>
+            <button class="px-5 py-2 border border-gray-400 text-gray-700 text-sm rounded hover:bg-gray-100 shadow-sm transition-all active:scale-95">
+                打开背面
+            </button>
+        </div>
+
+    </main>
+</div>
+
+<script>
+    const { createApp, ref, onMounted, watch, onBeforeUnmount } = Vue;
+
+    // ----------------------------------------
+    // 组件：树节点
+    // ----------------------------------------
+    const TreeItem = {
+        props: ['label', 'level', 'expanded', 'active'],
+        template: `
+            <div 
+                class="px-3 py-2 cursor-pointer hover:bg-gray-200 flex items-center text-gray-700 transition-colors select-none"
+                :class="{'active': active}"
+            >
+                <span :style="{ width: (level * 16) + 'px' }"></span>
+                <i v-if="level === 0" class="fas fa-building mr-2 text-gray-400 text-xs"></i>
+                <i v-else class="fas fa-server mr-2 text-gray-400 text-xs"></i>
+                {{ label }}
+            </div>
+        `
+    };
+
+    // ----------------------------------------
+    // 组件：Fabric.js 机柜 Canvas
+    // ----------------------------------------
+    const RackCanvas = {
+        props: ['rackData'],
+        template: `
+            <div class="flex flex-col items-center">
+                <div class="text-gray-700 font-bold mb-3 text-lg tracking-wide">{{ rackData.name }}</div>
+                <div class="canvas-container-wrapper border border-gray-300 bg-white p-1">
+                    <canvas :id="'c-' + rackData.id" width="260" height="640"></canvas>
+                </div>
+            </div>
+        `,
+        setup(props) {
+            let canvas = null;
+            const U_HEIGHT = 14; // 1U 的高度 (像素)
+            const RACK_WIDTH = 240;
+            const RACK_HEIGHT = 42 * U_HEIGHT + 40; // 42U + 顶部底部余量
+            const RAIL_WIDTH = 15;
+            const INNER_WIDTH = RACK_WIDTH - (RAIL_WIDTH * 2);
+            
+            // 初始化 Fabric Canvas
+            const initCanvas = () => {
+                const canvasId = 'c-' + props.rackData.id;
+                canvas = new fabric.Canvas(canvasId, {
+                    width: RACK_WIDTH + 20, // 增加一些padding
+                    height: RACK_HEIGHT,
+                    selection: false, // 禁用框选
+                    hoverCursor: 'pointer',
+                    backgroundColor: '#f3f4f6'
+                });
+
+                renderRack();
+            };
+
+            // 渲染机柜主体
+            const renderRack = () => {
+                if (!canvas) return;
+                canvas.clear();
+                canvas.setBackgroundColor('#f3f4f6', canvas.renderAll.bind(canvas));
+
+                const offsetX = 10;
+                const offsetY = 20;
+
+                // 1. 绘制机柜外框
+                const frame = new fabric.Rect({
+                    left: offsetX,
+                    top: offsetY,
+                    width: RACK_WIDTH,
+                    height: 42 * U_HEIGHT,
+                    fill: '#fff',
+                    stroke: '#666',
+                    strokeWidth: 2,
+                    selectable: false
+                });
+                canvas.add(frame);
+
+                // 2. 绘制左右立柱 (Rails)
+                const leftRail = new fabric.Rect({
+                    left: offsetX,
+                    top: offsetY,
+                    width: RAIL_WIDTH,
+                    height: 42 * U_HEIGHT,
+                    fill: '#e5e7eb',
+                    stroke: '#d1d5db',
+                    strokeWidth: 1,
+                    selectable: false
+                });
+
+                const rightRail = new fabric.Rect({
+                    left: offsetX + RACK_WIDTH - RAIL_WIDTH,
+                    top: offsetY,
+                    width: RAIL_WIDTH,
+                    height: 42 * U_HEIGHT,
+                    fill: '#e5e7eb',
+                    stroke: '#d1d5db',
+                    strokeWidth: 1,
+                    selectable: false
+                });
+                canvas.add(leftRail, rightRail);
+
+                // 3. 绘制U刻度和网格线
+                for (let i = 1; i <= 42; i++) {
+                    const yPos = offsetY + (42 - i) * U_HEIGHT;
+                    
+                    // 横向分割线
+                    const line = new fabric.Line([offsetX + RAIL_WIDTH, yPos, offsetX + RACK_WIDTH - RAIL_WIDTH, yPos], {
+                        stroke: '#f0f0f0',
+                        strokeWidth: 1,
+                        selectable: false,
+                        evented: false
+                    });
+                    canvas.add(line);
+
+                    // U数标尺
+                    if (i % 1 === 0) { // 每个都显示，或者 i % 5 === 0 简化显示
+                        const textL = new fabric.Text(i.toString(), {
+                            left: offsetX + 2,
+                            top: yPos + 2,
+                            fontSize: 9,
+                            fill: i % 5 === 0 ? '#000' : '#999',
+                            fontFamily: 'Arial',
+                            selectable: false
+                        });
+                        const textR = new fabric.Text(i.toString(), {
+                            left: offsetX + RACK_WIDTH - RAIL_WIDTH + 2,
+                            top: yPos + 2,
+                            fontSize: 9,
+                            fill: i % 5 === 0 ? '#000' : '#999',
+                            fontFamily: 'Arial',
+                            selectable: false
+                        });
+                        canvas.add(textL, textR);
+                    }
+                }
+
+                // 4. 渲染设备
+                props.rackData.devices.forEach(device => {
+                    drawDevice(device, offsetX, offsetY);
+                });
+            };
+
+            // 绘制单个设备
+            const drawDevice = (device, offsetX, offsetY) => {
+                // 计算位置: Y轴坐标 = 总高度 - (起始U + 高度) * U单位 + 偏移
+                // 注意：Fabric 坐标系左上角是(0,0)。42U在最上面，1U在最下面。
+                // 我们的循环逻辑： i=42 是 top:0. i=1 是 top: max.
+                // 设备的 Top U = device.u + device.height - 1
+                // 屏幕 Y = offsetY + (42 - (device.u + device.height - 1)) * U_HEIGHT
+                // 简化一下： 42U的顶端在 offsetY. 41U的顶端在 offsetY + 1*U_HEIGHT.
+                // U的顶端Y = offsetY + (42 - U) * U_HEIGHT
+                // 设备的Top位置对应的是 (device.u + device.height - 1) 这个U的顶端。
+                
+                const topU = device.u + device.height - 1;
+                const pixelY = offsetY + (42 - topU - 1) * U_HEIGHT; // -1 是因为u从1开始计数，但高度计算需要对齐
+
+                const deviceWidth = INNER_WIDTH - 2; // 稍微留点缝隙
+                const deviceHeight = device.height * U_HEIGHT - 2;
+                const deviceLeft = offsetX + RAIL_WIDTH + 1;
+
+                let deviceGroup;
+
+                // 通用属性
+                const commonProps = {
+                    left: deviceLeft,
+                    top: pixelY + 1, // +1 gap
+                    selectable: true,
+                    hoverCursor: 'pointer',
+                    subTargetCheck: true
+                };
+
+                // 根据设备类型绘制不同外观
+                if (device.type === 'server') {
+                    // --- 服务器样式 ---
+                    const rect = new fabric.Rect({
+                        width: deviceWidth, height: deviceHeight,
+                        fill: '#2d2d2d', stroke: '#111', rx: 2, ry: 2
+                    });
+                    
+                    // 把手
+                    const handleL = new fabric.Rect({ left: 2, top: 2, width: 4, height: deviceHeight-4, fill: '#3b82f6' });
+                    const handleR = new fabric.Rect({ left: deviceWidth-6, top: 2, width: 4, height: deviceHeight-4, fill: '#3b82f6' });
+                    
+                    // 硬盘格栅模拟
+                    const gridLines = [];
+                    for(let k=1; k<4; k++) {
+                        gridLines.push(new fabric.Rect({
+                            left: 10 + k*25, top: 4, width: 20, height: deviceHeight-8, 
+                            fill: '#1a1a1a', stroke: '#444'
+                        }));
+                    }
+
+                    // 指示灯
+                    const led = new fabric.Circle({ radius: 2, fill: '#22c55e', left: deviceWidth-15, top: deviceHeight/2 - 2 });
+
+                    deviceGroup = new fabric.Group([rect, handleL, handleR, ...gridLines, led], commonProps);
+
+                } else if (device.type === 'switch') {
+                    // --- 交换机样式 ---
+                    const rect = new fabric.Rect({
+                        width: deviceWidth, height: deviceHeight,
+                        fill: '#374151', stroke: '#4b5563'
+                    });
+                    
+                    // 端口模拟
+                    const ports = [];
+                    for(let p=0; p<12; p++) {
+                        ports.push(new fabric.Rect({
+                            left: 10 + p*8, top: 4, width: 5, height: 4, fill: '#111', stroke:'#666', strokeWidth:0.5
+                        }));
+                        ports.push(new fabric.Rect({
+                            left: 10 + p*8, top: 10, width: 5, height: 4, fill: '#111', stroke:'#666', strokeWidth:0.5
+                        }));
+                    }
+                    const logo = new fabric.Text("H3C", { fontSize: 8, fill: '#9ca3af', left: deviceWidth - 25, top: 5 });
+                    
+                    deviceGroup = new fabric.Group([rect, ...ports, logo], commonProps);
+
+                } else if (device.type === 'reserved') {
+                    // --- 预留位 (蓝色) ---
+                    const rect = new fabric.Rect({
+                        width: deviceWidth, height: deviceHeight,
+                        fill: '#e0f2fe', stroke: '#7dd3fc', strokeDashArray: [5, 5]
+                    });
+                    const text = new fabric.Text(device.name, {
+                        fontSize: 10, fill: '#0284c7', originX: 'center', originY: 'center',
+                        left: deviceWidth/2, top: deviceHeight/2
+                    });
+                    deviceGroup = new fabric.Group([rect, text], commonProps);
+                } else {
+                    // --- 默认/配线架 ---
+                    const rect = new fabric.Rect({
+                        width: deviceWidth, height: deviceHeight,
+                        fill: '#4b5563', stroke: '#333'
+                    });
+                    const label = new fabric.Text(device.name, {
+                        fontSize: 10, fill: '#fff', left: 5, top: deviceHeight/2 - 5
+                    });
+                    deviceGroup = new fabric.Group([rect, label], commonProps);
+                }
+
+                // 添加 Tooltip 事件
+                deviceGroup.on('mouseover', () => {
+                    // Fabric本身没有Tooltip，可以使用Text对象临时显示，或者触发Vue事件
+                    // 这里简单演示添加一个悬浮文字
+                    deviceGroup._originalShadow = deviceGroup.shadow;
+                    deviceGroup.set({ shadow: new fabric.Shadow({ color: 'rgba(0,0,0,0.5)', blur: 10 }) });
+                    canvas.requestRenderAll();
+                });
+
+                deviceGroup.on('mouseout', () => {
+                    deviceGroup.set({ shadow: deviceGroup._originalShadow });
+                    canvas.requestRenderAll();
+                });
+                
+                deviceGroup.on('mousedown', () => {
+                   alert(`设备详情:\n名称: ${device.name}\n型号: ${device.model}\n位置: ${device.u}U\n高度: ${device.height}U`); 
+                });
+
+                canvas.add(deviceGroup);
+            };
+
+            onMounted(() => {
+                // 稍微延迟以确保DOM渲染
+                setTimeout(initCanvas, 100);
+            });
+
+            return {};
+        }
+    };
+
+    // ----------------------------------------
+    // 主应用逻辑
+    // ----------------------------------------
+    createApp({
+        components: {
+            'tree-item': TreeItem,
+            'rack-canvas': RackCanvas
+        },
+        setup() {
+            const currentTab = ref('设备维护');
+            const tabs = ['机房全览', '设备维护', '线缆维护'];
+            const deviceTypes = [
+                '网络配线架', '光纤配线架', '交换机', '物理服务器', 
+                '虚拟化服务器', '超融合服务器', '集中存储', '光纤交换机'
+            ];
+
+            const racks = ref([
+                {
+                    id: 'rack-1',
+                    name: '2-3F-1机柜',
+                    devices: [
+                        { u: 41, height: 1, type: 'patch', name: 'ODF光配', model: 'Generic ODF' },
+                        { u: 39, height: 1, type: 'switch', name: '交换机 A', model: 'H3C S5130' },
+                        { u: 38, height: 1, type: 'switch', name: '交换机 B', model: 'H3C S5130' },
+                        { u: 30, height: 4, type: 'reserved', name: '预留空间', model: 'Reserved' },
+                        { u: 24, height: 2, type: 'server', name: '业务服务器 01', model: 'Dell R740' },
+                        { u: 22, height: 2, type: 'server', name: '业务服务器 02', model: 'Dell R740' },
+                        { u: 20, height: 2, type: 'server', name: '业务服务器 03', model: 'Dell R740' },
+                        { u: 18, height: 2, type: 'server', name: '超融合 01', model: 'HCI Node' },
+                        { u: 16, height: 2, type: 'server', name: '超融合 02', model: 'HCI Node' },
+                        { u: 14, height: 2, type: 'server', name: '超融合 03', model: 'HCI Node' },
+                        { u: 10, height: 4, type: 'reserved', name: '扩展预留', model: 'Reserved' },
+                        { u: 4, height: 2, type: 'server', name: '存储网关', model: 'Gateway' }
+                    ]
+                },
+                {
+                    id: 'rack-2',
+                    name: '2-3F-2机柜',
+                    devices: [
+                         { u: 42, height: 1, type: 'patch', name: '综合布线', model: 'Patch Panel' },
+                         { u: 28, height: 4, type: 'reserved', name: '预留', model: 'Reserved' },
+                         { u: 18, height: 4, type: 'reserved', name: '预留', model: 'Reserved' },
+                         { u: 6, height: 2, type: 'server', name: '备份一体机', model: 'Backup' },
+                    ]
+                }
+            ]);
+
+            return {
+                currentTab,
+                tabs,
+                deviceTypes,
+                racks
+            };
+        }
+    }).mount('#app');
+</script>
+
 </body>
 </html>
