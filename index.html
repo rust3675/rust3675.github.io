@@ -1,517 +1,575 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>冰霜飞龙 - Frost Wyvern</title>
+    <title>Mechanical Ice Dragon Flight</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; }
-        canvas { display: block; }
+        body { margin: 0; overflow: hidden; background-color: #05070a; }
+        #canvas-container { width: 100vw; height: 100vh; }
         #loading {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            color: #00ffff;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 24px;
-            pointer-events: none;
-            text-shadow: 0 0 10px #00ffff;
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #00ffff; font-family: 'Courier New', monospace; font-size: 1.2rem;
+            text-shadow: 0 0 10px #00ffff; pointer-events: none; transition: opacity 0.5s;
         }
+        .hidden { opacity: 0; }
     </style>
+    <!-- Import Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Simplex Noise for terrain generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
 </head>
 <body>
-    <div id="loading">正在召唤冰霜飞龙...</div>
-    <!-- 引入 Three.js -->
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
+    <div id="loading">INITIALIZING SYSTEM...</div>
+    <div id="canvas-container"></div>
 
-    <script type="module">
-        import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    <script>
+        // --- Configuration ---
+        const CONFIG = {
+            color: {
+                background: 0x05070a,
+                fog: 0x0b1016,
+                dragonBlue: 0x1a3c5a, // Dark mechanical blue
+                dragonSilver: 0x8899a6, // Brushed steel
+                membrane: 0x4fd4d6, // Ice cyan
+                eyeGlow: 0x00ffff,
+                iceSpike: 0xa5f2f3
+            },
+            speed: 0.02
+        };
 
-        // --- 场景初始化 ---
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x051020); // 深蓝黑色背景
-        scene.fog = new THREE.FogExp2(0x051020, 0.02);
+        let scene, camera, renderer, dragon, snowSystem, terrain;
+        let clock = new THREE.Clock();
+        let mouse = { x: 0, y: 0 };
 
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 5, 18);
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.toneMapping = THREE.ReinhardToneMapping;
-        renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        document.body.appendChild(renderer.domElement);
-
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
-        controls.maxPolarAngle = Math.PI / 2 + 0.2; // 限制不能看太低
-
-        // --- 灯光系统 ---
-        const ambientLight = new THREE.AmbientLight(0x404040, 2); // 基础环境光
-        scene.add(ambientLight);
-
-        // 主光源 (冷色调太阳)
-        const sunLight = new THREE.DirectionalLight(0xaaddff, 3);
-        sunLight.position.set(10, 20, 10);
-        sunLight.castShadow = true;
-        sunLight.shadow.mapSize.width = 2048;
-        sunLight.shadow.mapSize.height = 2048;
-        scene.add(sunLight);
-
-        // 底部反射光 (冰面反射)
-        const bottomLight = new THREE.DirectionalLight(0x00ffff, 1);
-        bottomLight.position.set(0, -10, 5);
-        scene.add(bottomLight);
-
-        // --- 材质定义 ---
-        // 1. 龙鳞/铠甲材质 (金属蓝)
-        const armorMaterial = new THREE.MeshPhysicalMaterial({
-            color: 0x2C75FF,        // 冰蓝色
-            emissive: 0x001133,
-            metalness: 0.8,
-            roughness: 0.2,
-            clearcoat: 1.0,         // 像冰一样的涂层
-            clearcoatRoughness: 0.1,
-            flatShading: true       // 开启平面着色，增强棱角感 (替代圆柱的光滑感)
-        });
-
-        // 2. 冰刺/骨骼材质 (半透明发光)
-        const iceSpikeMaterial = new THREE.MeshPhysicalMaterial({
-            color: 0xAAFFFF,
-            metalness: 0.1,
-            roughness: 0.1,
-            transmission: 0.6,      // 透光
-            thickness: 2.0,
-            opacity: 0.9,
-            transparent: true,
-            emissive: 0x004444,
-            emissiveIntensity: 0.2
-        });
-
-        // 3. 眼睛发光材质
-        const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0x00FFFF });
-
-        // 4. 翼膜材质 (深色破损感)
-        const wingMembraneMaterial = new THREE.MeshPhysicalMaterial({
-            color: 0x335588,
-            metalness: 0.5,
-            roughness: 0.7,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 0.9
-        });
-
-        // --- 几何体构建辅助函数 ---
-
-        // 创建尖刺 (替代圆锥，使用拉长的四面体，更像冰晶)
-        function createCrystalSpike(width, height, material) {
-            const geometry = new THREE.TetrahedronGeometry(1, 0);
-            geometry.scale(width, height, width);
-            // 随机旋转一点顶点让它看起来不那么规则
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.castShadow = true;
-            return mesh;
-        }
-
-        // 创建铠甲板 (使用ExtrudeGeometry替代简单的Box)
-        function createArmorPlate(width, length, depth, material) {
-            const shape = new THREE.Shape();
-            // 绘制一个六边形或不规则多边形作为截面
-            shape.moveTo(0, width/2);
-            shape.lineTo(length/2, width);
-            shape.lineTo(length, width/2);
-            shape.lineTo(length/2, 0);
-            shape.lineTo(0, 0);
-
-            const extrudeSettings = {
-                steps: 1,
-                depth: depth,
-                bevelEnabled: true,
-                bevelThickness: 0.1,
-                bevelSize: 0.1,
-                bevelSegments: 1
-            };
-
-            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-            geometry.center(); // 居中
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            return mesh;
-        }
-
-        // --- 飞龙组装 (Procedural Dragon) ---
-        const dragonGroup = new THREE.Group();
-        scene.add(dragonGroup);
-
-        // 1. 躯干 (Torso) - 由多个铠甲板层叠组成
-        const torsoGroup = new THREE.Group();
-        dragonGroup.add(torsoGroup);
-
-        for (let i = 0; i < 4; i++) {
-            const rib = createArmorPlate(1.5 - (i*0.2), 2.5, 1.8, armorMaterial);
-            rib.position.set(0, 0, i * 1.2 - 1.5);
-            rib.rotation.x = Math.PI / 2;
-            rib.scale.set(1, 1, 1 - i*0.1);
-            torsoGroup.add(rib);
+        // Initialize
+        function init() {
+            const container = document.getElementById('canvas-container');
             
-            // 胸口发光核心
-            if(i===1) {
-                const coreLight = new THREE.PointLight(0x00ffff, 2, 5);
-                rib.add(coreLight);
-            }
+            // Scene & Fog
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(CONFIG.color.background);
+            scene.fog = new THREE.FogExp2(CONFIG.color.fog, 0.015);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 5, 20);
+            camera.lookAt(0, 0, 0);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0x404040, 1.5); // Soft white light
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            sunLight.position.set(50, 100, 50);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            scene.add(sunLight);
+
+            const blueBackLight = new THREE.DirectionalLight(0x0044ff, 0.8);
+            blueBackLight.position.set(-50, 20, -50);
+            scene.add(blueBackLight);
+
+            // Build Scene Objects
+            createTerrain();
+            createSnow();
+            dragon = new MechanicalDragon();
+            scene.add(dragon.mesh);
+
+            // Events
+            window.addEventListener('resize', onWindowResize, false);
+            document.addEventListener('mousemove', onMouseMove, false);
+
+            // Hide loader
+            setTimeout(() => {
+                document.getElementById('loading').classList.add('hidden');
+            }, 1000);
+
+            animate();
         }
 
-        // 2. 脖子 (Neck) - 链式结构
-        const neckBones = [];
-        let currentParent = torsoGroup;
-        const neckLength = 6;
-        
-        for (let i = 0; i < neckLength; i++) {
-            const neckSegmentGroup = new THREE.Group();
-            // 脖子位置偏移
-            neckSegmentGroup.position.set(0, 0.8, -0.5); 
-            if (i === 0) neckSegmentGroup.position.set(0, 1.5, -1.5); // 连接躯干点
-
-            // 脖子主体 (复杂的结晶状)
-            const segmentGeo = new THREE.IcosahedronGeometry(0.6 - (i * 0.05), 0);
-            const segment = new THREE.Mesh(segmentGeo, armorMaterial);
-            segment.castShadow = true;
-            neckSegmentGroup.add(segment);
-
-            // 脖子上的冰刺 (替代鬃毛)
-            const spike = createCrystalSpike(0.2, 1.0, iceSpikeMaterial);
-            spike.position.set(0, 0.6, 0);
-            spike.rotation.x = -Math.PI / 4;
-            neckSegmentGroup.add(spike);
-
-            currentParent.add(neckSegmentGroup);
-            currentParent = neckSegmentGroup; // 链式连接
-            neckBones.push(neckSegmentGroup);
-        }
-
-        // 3. 头部 (Head) - 接在脖子末端
-        const headGroup = new THREE.Group();
-        headGroup.position.set(0, 0.8, -0.5);
-        currentParent.add(headGroup);
-
-        // 头盖骨 (棱角分明)
-        const skullGeo = new THREE.BufferGeometry();
-        // 手动构建一个简单的低多边形龙头形状顶点 (这里简化用Octahedron变形)
-        const headMain = new THREE.Mesh(new THREE.OctahedronGeometry(0.8, 0), armorMaterial);
-        headMain.scale.set(0.8, 0.6, 1.5);
-        headGroup.add(headMain);
-
-        // 下颚
-        const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 1.2), armorMaterial);
-        jaw.position.set(0, -0.4, 0.2);
-        jaw.rotation.x = 0.2;
-        headGroup.add(jaw);
-
-        // 眼睛 (Glowing Eyes)
-        const leftEye = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, 0.2), eyeMaterial);
-        leftEye.position.set(0.35, 0.1, 0.5);
-        headGroup.add(leftEye);
-        const rightEye = leftEye.clone();
-        rightEye.position.set(-0.35, 0.1, 0.5);
-        headGroup.add(rightEye);
-        
-        // 眼睛点光源
-        const eyeLight = new THREE.PointLight(0x00ffff, 1, 2);
-        eyeLight.position.set(0, 0.1, 0.8);
-        headGroup.add(eyeLight);
-
-        // 头上的角 (Horns)
-        const leftHorn = createCrystalSpike(0.15, 1.5, iceSpikeMaterial);
-        leftHorn.position.set(0.3, 0.5, -0.5);
-        leftHorn.rotation.x = -0.5;
-        headGroup.add(leftHorn);
-        const rightHorn = leftHorn.clone();
-        rightHorn.position.set(-0.3, 0.5, -0.5);
-        headGroup.add(rightHorn);
-
-        // 4. 尾巴 (Tail) - 链式结构
-        const tailBones = [];
-        currentParent = torsoGroup;
-        const tailLength = 12;
-
-        for (let i = 0; i < tailLength; i++) {
-            const tailSegGroup = new THREE.Group();
-            tailSegGroup.position.set(0, i===0 ? -0.5 : 0, i===0 ? 1.5 : 0.8); // 向后延伸
-
-            const s = 1 - (i / tailLength); // 逐渐变小
-            const segMesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.5 * s, 0), armorMaterial);
-            tailSegGroup.add(segMesh);
-
-            // 尾巴两侧的冰刺
-            if (i % 2 === 0) {
-                const sideSpikeL = createCrystalSpike(0.1*s, 0.6*s, iceSpikeMaterial);
-                sideSpikeL.position.set(0.3*s, 0, 0);
-                sideSpikeL.rotation.z = -Math.PI/2;
-                tailSegGroup.add(sideSpikeL);
+        // --- Dragon Class ---
+        class MechanicalDragon {
+            constructor() {
+                this.mesh = new THREE.Group();
+                this.time = 0;
                 
-                const sideSpikeR = createCrystalSpike(0.1*s, 0.6*s, iceSpikeMaterial);
-                sideSpikeR.position.set(-0.3*s, 0, 0);
-                sideSpikeR.rotation.z = Math.PI/2;
-                tailSegGroup.add(sideSpikeR);
+                // Materials
+                this.armorMat = new THREE.MeshStandardMaterial({
+                    color: CONFIG.color.dragonBlue,
+                    metalness: 0.8,
+                    roughness: 0.3,
+                    flatShading: true
+                });
+
+                this.silverMat = new THREE.MeshStandardMaterial({
+                    color: CONFIG.color.dragonSilver,
+                    metalness: 0.9,
+                    roughness: 0.4
+                });
+
+                this.iceMat = new THREE.MeshStandardMaterial({
+                    color: CONFIG.color.iceSpike,
+                    transparent: true,
+                    opacity: 0.8,
+                    roughness: 0.1,
+                    metalness: 0.1,
+                    emissive: 0x002233,
+                    emissiveIntensity: 0.2
+                });
+
+                this.membraneMat = new THREE.MeshStandardMaterial({
+                    color: CONFIG.color.membrane,
+                    transparent: true,
+                    opacity: 0.4,
+                    side: THREE.DoubleSide,
+                    metalness: 0.1,
+                    roughness: 0.2
+                });
+
+                this.glowMat = new THREE.MeshBasicMaterial({
+                    color: CONFIG.color.eyeGlow
+                });
+
+                this.buildBody();
             }
 
-            currentParent.add(tailSegGroup);
-            currentParent = tailSegGroup;
-            tailBones.push(tailSegGroup);
-        }
+            buildBody() {
+                // 1. Torso Group
+                this.torso = new THREE.Group();
+                this.mesh.add(this.torso);
 
-        // 5. 翅膀 (Wings) - 复杂的骨架 + 破碎的膜
-        function createDetailedWing(isLeft) {
-            const wingGroup = new THREE.Group();
-            const dir = isLeft ? 1 : -1;
+                // Main Chest Plate (Armored Box)
+                const chestGeo = new THREE.CylinderGeometry(1.8, 1.2, 4, 6);
+                const chest = new THREE.Mesh(chestGeo, this.armorMat);
+                chest.rotation.z = Math.PI / 2;
+                chest.rotation.y = Math.PI / 6;
+                chest.castShadow = true;
+                this.torso.add(chest);
 
-            // 翅膀根部关节
-            const shoulder = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 0), armorMaterial);
-            wingGroup.add(shoulder);
+                // Hips
+                const hipGeo = new THREE.CylinderGeometry(1.2, 0.8, 2.5, 6);
+                const hips = new THREE.Mesh(hipGeo, this.silverMat);
+                hips.rotation.z = Math.PI / 2;
+                hips.position.x = -3;
+                hips.castShadow = true;
+                this.torso.add(hips);
 
-            // 主翼骨 (Arm)
-            const armLength = 4;
-            const armBone = createArmorPlate(0.3, armLength, 0.3, armorMaterial);
-            armBone.position.set(dir * armLength/2, 0, 0);
-            armBone.rotation.z = dir * 0.2;
-            shoulder.add(armBone);
+                // Spikes on back
+                for(let i=0; i<3; i++) {
+                    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.2, 1.5, 4), this.iceMat);
+                    spike.position.y = 1.5;
+                    spike.position.x = -1 + i * 1.2;
+                    spike.rotation.x = -Math.PI / 6;
+                    this.torso.add(spike);
+                }
 
-            // 前臂 (Forearm)
-            const forearmLength = 5;
-            const forearmGroup = new THREE.Group();
-            forearmGroup.position.set(dir * armLength * 0.9, 0, 0); // 连接点
-            forearmGroup.rotation.z = dir * 0.5; // 折叠角度
-            shoulder.add(forearmGroup); // 这里简化，直接挂在shoulder层级以便后续动画，或者挂在armBone末端
+                // 2. Neck & Head
+                this.neckSegments = [];
+                let prevSegment = this.torso;
+                let posX = 2.5;
+                
+                // Neck Chain
+                for (let i = 0; i < 5; i++) {
+                    const segGroup = new THREE.Group();
+                    segGroup.position.set(i === 0 ? 2 : 0.8, i===0 ? 0.5: 0.2, 0); // Offset from previous
+                    
+                    const segGeo = new THREE.CylinderGeometry(0.8 - i*0.1, 0.7 - i*0.1, 1, 5);
+                    const seg = new THREE.Mesh(segGeo, this.silverMat);
+                    seg.rotation.z = Math.PI / 2;
+                    seg.castShadow = true;
+                    
+                    // Add neck spikes
+                    const nSpike = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.8, 3), this.iceMat);
+                    nSpike.position.y = 0.5;
+                    nSpike.rotation.x = -Math.PI/4;
+                    seg.add(nSpike);
 
-            const forearmBone = createArmorPlate(0.25, forearmLength, 0.2, armorMaterial);
-            forearmBone.position.set(dir * forearmLength/2, 0, 0);
-            forearmGroup.add(forearmBone);
+                    segGroup.add(seg);
+                    prevSegment.add(segGroup);
+                    prevSegment = segGroup;
+                    this.neckSegments.push(segGroup);
+                }
 
-            // 翼指 (Fingers) - 像雨伞骨架
-            const fingers = [];
-            for(let i=0; i<3; i++) {
-                const fingerLen = 4 + i;
-                const finger = createCrystalSpike(0.05, fingerLen, armorMaterial);
-                finger.position.set(dir * forearmLength, 0, 0); // 从前臂末端长出
-                // 展开角度
-                finger.rotation.z = dir * (Math.PI / 2 + (i * 0.5)); 
-                forearmGroup.add(finger);
-                fingers.push(finger);
+                // Head
+                this.headGroup = new THREE.Group();
+                this.headGroup.position.set(0.8, 0, 0);
+                prevSegment.add(this.headGroup);
+
+                // Skull
+                const skull = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.9), this.armorMat);
+                this.headGroup.add(skull);
+
+                // Snout
+                const snout = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 1.2, 5), this.armorMat);
+                snout.rotation.z = Math.PI / 2;
+                snout.position.x = 1;
+                this.headGroup.add(snout);
+
+                // Jaw
+                const jaw = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.2, 0.6), this.silverMat);
+                jaw.position.set(0.5, -0.4, 0);
+                jaw.rotation.z = 0.2;
+                this.headGroup.add(jaw);
+
+                // Eyes
+                const eyeGeo = new THREE.SphereGeometry(0.15, 8, 8);
+                const leftEye = new THREE.Mesh(eyeGeo, this.glowMat);
+                const rightEye = new THREE.Mesh(eyeGeo, this.glowMat);
+                leftEye.position.set(0.2, 0.2, 0.35);
+                rightEye.position.set(0.2, 0.2, -0.35);
+                this.headGroup.add(leftEye);
+                this.headGroup.add(rightEye);
+
+                // Eye Glow Light
+                const eyeLight = new THREE.PointLight(CONFIG.color.eyeGlow, 1, 5);
+                eyeLight.position.set(0.5, 0, 0);
+                this.headGroup.add(eyeLight);
+
+                // Head Horns
+                const hornL = new THREE.Mesh(new THREE.ConeGeometry(0.1, 1.5, 4), this.iceMat);
+                hornL.position.set(-0.5, 0.5, 0.4);
+                hornL.rotation.z = Math.PI / 3;
+                hornL.rotation.x = -0.2;
+                this.headGroup.add(hornL);
+
+                const hornR = hornL.clone();
+                hornR.position.set(-0.5, 0.5, -0.4);
+                hornR.rotation.x = 0.2;
+                this.headGroup.add(hornR);
+
+
+                // 3. Tail
+                this.tailSegments = [];
+                prevSegment = this.torso; // Start back at torso hips
+                // Actually attach to hips object logic
+                // We'll just chain from the hips position
+                
+                // Tail Chain
+                let tailRoot = new THREE.Group();
+                tailRoot.position.set(-4.2, 0, 0);
+                this.torso.add(tailRoot);
+                prevSegment = tailRoot;
+
+                for(let i=0; i<12; i++) {
+                    const tGroup = new THREE.Group();
+                    tGroup.position.set(-0.8, 0, 0);
+
+                    const size = 0.7 - (i * 0.05);
+                    const tGeo = new THREE.CylinderGeometry(size, size*0.8, 1, 5);
+                    const tSeg = new THREE.Mesh(tGeo, this.armorMat);
+                    tSeg.rotation.z = Math.PI / 2;
+                    tSeg.castShadow = true;
+                    
+                    // Tail spikes
+                    if(i % 2 === 0) {
+                        const tSpike = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.5 + size, 3), this.iceMat);
+                        tSpike.position.y = size;
+                        tGroup.add(tSpike);
+                    }
+
+                    tGroup.add(tSeg);
+                    prevSegment.add(tGroup);
+                    prevSegment = tGroup;
+                    this.tailSegments.push(tGroup);
+                }
+
+
+                // 4. Wings
+                this.leftWing = this.createWing(1);
+                this.rightWing = this.createWing(-1);
+                
+                this.torso.add(this.leftWing);
+                this.torso.add(this.rightWing);
+
             }
 
-            // 翼膜 (Membrane) - 使用自定义Shape来模拟破损
-            const membraneShape = new THREE.Shape();
-            membraneShape.moveTo(0, 0); // 前臂末端
-            
-            // 绘制一个带锯齿的路径连接各个指尖
-            // 注意：这里只是简化模拟，真实的动态翼膜需要蒙皮动画，这里用静态几何体模拟展开状态
-            const pts = [];
-            pts.push(new THREE.Vector2(0,0));
-            pts.push(new THREE.Vector2(dir * -2, -3)); // 第一指尖大概位置
-            pts.push(new THREE.Vector2(dir * -1, -2)); // 锯齿缺口
-            pts.push(new THREE.Vector2(dir * -3, -5)); // 第二指尖
-            pts.push(new THREE.Vector2(dir * -2.5, -3.5)); // 锯齿缺口
-            pts.push(new THREE.Vector2(dir * -5, -6)); // 第三指尖
-            pts.push(new THREE.Vector2(dir * -4, 1)); // 回到根部附近
+            createWing(side) {
+                const wingGroup = new THREE.Group();
+                // Position at shoulder
+                wingGroup.position.set(1, 0.5, 0.8 * side);
 
-            const membraneGeo = new THREE.ShapeGeometry(new THREE.Shape(pts));
-            const membrane = new THREE.Mesh(membraneGeo, wingMembraneMaterial);
-            membrane.position.set(dir * forearmLength, 0, 0); // 挂在前臂末端
-            forearmGroup.add(membrane);
+                // 1. Humerus (Inner Wing Bone)
+                const humerusL = 3;
+                const humerusGeo = new THREE.BoxGeometry(humerusL, 0.4, 0.4);
+                const humerus = new THREE.Mesh(humerusGeo, this.silverMat);
+                humerus.position.set(0, 0, humerusL/2 * side); // Grow outward
+                humerus.rotation.y = -0.2 * side;
+                
+                // Pivot wrapper
+                const shoulderPivot = new THREE.Group();
+                shoulderPivot.rotation.z = 0.5; // Initial lift
+                shoulderPivot.rotation.y = -0.5 * side; // Sweep back
+                
+                // Re-center pivot logic
+                const bone1 = new THREE.Group();
+                bone1.add(humerus);
+                // Adjust geometric center
+                humerus.position.set(0, 0, humerusL/2 * side);
+                
+                shoulderPivot.add(bone1);
+                wingGroup.add(shoulderPivot);
 
-            return { group: wingGroup, forearm: forearmGroup };
-        }
+                // 2. Radius (Outer Wing Bone)
+                const radiusL = 4;
+                const radiusGeo = new THREE.BoxGeometry(radiusL, 0.3, 0.3);
+                const radius = new THREE.Mesh(radiusGeo, this.silverMat);
+                radius.position.set(0, 0, radiusL/2 * side);
 
-        const leftWingObj = createDetailedWing(true);
-        leftWingObj.group.position.set(1.2, 1, -0.5);
-        leftWingObj.group.rotation.z = -0.2;
-        leftWingObj.group.rotation.y = -0.2;
-        torsoGroup.add(leftWingObj.group);
+                const elbowPivot = new THREE.Group();
+                elbowPivot.position.set(0, 0, humerusL * side);
+                elbowPivot.rotation.y = 0.5 * side; // Bend wing
+                
+                const bone2 = new THREE.Group();
+                bone2.add(radius);
+                elbowPivot.add(bone2);
+                bone1.add(elbowPivot);
 
-        const rightWingObj = createDetailedWing(false);
-        rightWingObj.group.position.set(-1.2, 1, -0.5);
-        rightWingObj.group.rotation.z = 0.2;
-        rightWingObj.group.rotation.y = 0.2;
-        torsoGroup.add(rightWingObj.group);
+                // 3. Fingers & Membrane
+                // We will create "fingers" radiating from the wrist (end of radius)
+                const wristNode = new THREE.Group();
+                wristNode.position.set(0, 0, radiusL * side);
+                bone2.add(wristNode);
 
+                const fingerLengths = [5, 4, 3, 2];
+                const fingerAngles = [0.2, 0.8, 1.5, 2.0]; // Radians spread
 
-        // 6. 腿部 (Legs) - 猛禽结构
-        function createLeg(isLeft) {
-            const legGroup = new THREE.Group();
-            const dir = isLeft ? 1 : -1;
+                fingerLengths.forEach((len, i) => {
+                    const fGeo = new THREE.CylinderGeometry(0.05, 0.02, len, 4);
+                    const finger = new THREE.Mesh(fGeo, this.silverMat);
+                    finger.position.set(0, 0, len/2 * side); // Length along Z initially
+                    finger.rotation.x = Math.PI/2; // Pointing out
+                    
+                    const fPivot = new THREE.Group();
+                    fPivot.rotation.y = fingerAngles[i] * side;
+                    fPivot.add(finger);
+                    wristNode.add(fPivot);
 
-            // 大腿
-            const thigh = new THREE.Mesh(new THREE.OctahedronGeometry(0.7, 0), armorMaterial);
-            thigh.scale.set(0.8, 1.2, 0.8);
-            legGroup.add(thigh);
+                    // Add Membrane patches between fingers
+                    // Approximated with planes scaling between points is complex procedurally without custom geometry
+                    // So we attach thin planes to the fingers themselves to simulate the "stretched" look
+                    const memGeo = new THREE.PlaneGeometry(len, len/1.5);
+                    const mem = new THREE.Mesh(memGeo, this.membraneMat);
+                    mem.position.set(len/2, 0, 0); // Offset to hang off finger
+                    mem.rotation.x = Math.PI/2;
+                    mem.rotation.z = -0.2 * side; // Angle slightly back
+                    
+                    // Hack to make it look attached
+                    fPivot.add(mem);
+                });
 
-            // 小腿
-            const shin = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.5, 0.4), armorMaterial);
-            shin.position.set(0, -1.2, 0.5);
-            shin.rotation.x = -0.4;
-            legGroup.add(shin);
+                // Store references for animation
+                wingGroup.userData = {
+                    shoulder: shoulderPivot,
+                    elbow: elbowPivot,
+                    wrist: wristNode,
+                    side: side
+                };
 
-            // 爪子
-            const clawGroup = new THREE.Group();
-            clawGroup.position.set(0, -2.0, 0.8);
-            legGroup.add(clawGroup);
-
-            // 三根脚趾
-            for(let k=-1; k<=1; k++) {
-                const toe = createCrystalSpike(0.1, 0.6, iceSpikeMaterial);
-                toe.rotation.x = Math.PI/2;
-                toe.rotation.z = k * 0.5;
-                toe.position.set(k*0.2, 0, 0);
-                clawGroup.add(toe);
+                return wingGroup;
             }
 
-            return legGroup;
+            update(t, delta) {
+                this.time += delta;
+
+                // 1. Body Undulation (Sine wave flight)
+                this.mesh.position.y = Math.sin(this.time * 2) * 1.5;
+                this.mesh.rotation.z = Math.sin(this.time * 1) * 0.1; // Slight Roll
+                this.mesh.rotation.x = Math.sin(this.time * 1.5) * 0.05; // Pitch
+
+                // 2. Wing Flapping
+                const flapSpeed = 4;
+                const flapAmp = 0.6;
+                const flapOffset = Math.sin(this.time * flapSpeed);
+
+                [this.leftWing, this.rightWing].forEach(wing => {
+                    const s = wing.userData.side;
+                    
+                    // Shoulder Flap
+                    wing.userData.shoulder.rotation.z = (0.5 + flapOffset * flapAmp) * s * -1; // Invert for correct up/down
+                    
+                    // Elbow secondary motion (lagging behind shoulder)
+                    wing.userData.elbow.rotation.z = Math.sin(this.time * flapSpeed - 1) * 0.3 * s;
+
+                    // Wrist spread
+                    wing.userData.wrist.rotation.z = Math.sin(this.time * flapSpeed - 2) * 0.2 * s;
+                });
+
+                // 3. Neck Sinuous Motion
+                this.neckSegments.forEach((seg, i) => {
+                    seg.rotation.y = Math.sin(this.time * 2 + i * 0.5) * 0.1;
+                    seg.rotation.z = Math.sin(this.time * 2 + i * 0.5) * 0.05;
+                });
+                
+                // Head follows neck but stabilizes
+                this.headGroup.rotation.y = Math.sin(this.time * 2 + 5 * 0.5) * 0.1;
+                
+                // Jaw movement (breathing)
+                this.headGroup.children[2].rotation.z = 0.2 + Math.sin(this.time * 5) * 0.05;
+
+                // 4. Tail Whipping
+                this.tailSegments.forEach((seg, i) => {
+                    // Increasing amplitude towards tip
+                    const amp = 0.1 + (i * 0.02);
+                    seg.rotation.y = Math.sin(this.time * 3 - i * 0.4) * amp;
+                    seg.rotation.z = Math.cos(this.time * 3 - i * 0.4) * (amp * 0.5);
+                });
+            }
         }
 
-        const leftLeg = createLeg(true);
-        leftLeg.position.set(1, -1, 1);
-        torsoGroup.add(leftLeg);
+        // --- Environment ---
 
-        const rightLeg = createLeg(false);
-        rightLeg.position.set(-1, -1, 1);
-        torsoGroup.add(rightLeg);
-
-
-        // --- 环境粒子系统 (Snow/Ice Dust) ---
-        const particleCount = 1500;
-        const particlesGeometry = new THREE.BufferGeometry();
-        const particlePositions = [];
-        const particleSpeeds = [];
-
-        for (let i = 0; i < particleCount; i++) {
-            const x = (Math.random() - 0.5) * 40;
-            const y = (Math.random() - 0.5) * 40;
-            const z = (Math.random() - 0.5) * 40;
-            particlePositions.push(x, y, z);
-            particleSpeeds.push(Math.random() * 0.05 + 0.02);
-        }
-
-        particlesGeometry.setAttribute('position', new THREE.Float32BufferAttribute(particlePositions, 3));
-        const particlesMaterial = new THREE.PointsMaterial({
-            color: 0xffffff,
-            size: 0.1,
-            transparent: true,
-            opacity: 0.8,
-            blending: THREE.AdditiveBlending
-        });
-        const particleSystem = new THREE.Points(particlesGeometry, particlesMaterial);
-        scene.add(particleSystem);
-
-        // --- 底部冰台 ---
-        const icePlatformGeo = new THREE.CylinderGeometry(8, 8, 0.2, 6); // 这里的圆柱仅用于底座，不用于龙
-        const icePlatformMat = new THREE.MeshPhysicalMaterial({
-            color: 0x88ccff,
-            transmission: 0.8,
-            opacity: 0.8,
-            roughness: 0.1,
-            metalness: 0.1,
-            transparent: true
-        });
-        const platform = new THREE.Mesh(icePlatformGeo, icePlatformMat);
-        platform.position.y = -6;
-        scene.add(platform);
-        
-        // 底座上的尖刺
-        for(let i=0; i<10; i++) {
-            const pSpike = createCrystalSpike(0.5, 2 + Math.random(), iceSpikeMaterial);
-            const angle = Math.random() * Math.PI * 2;
-            const rad = Math.random() * 6;
-            pSpike.position.set(Math.cos(angle)*rad, -5, Math.sin(angle)*rad);
-            scene.add(pSpike);
-        }
-
-
-        // --- 后处理 (Bloom Effect) ---
-        const composer = new EffectComposer(renderer);
-        const renderPass = new RenderPass(scene, camera);
-        composer.addPass(renderPass);
-
-        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-        bloomPass.threshold = 0.2;
-        bloomPass.strength = 0.6; // 发光强度
-        bloomPass.radius = 0.5;
-        composer.addPass(bloomPass);
-
-        // --- 动画循环 ---
-        document.getElementById('loading').style.display = 'none';
-
-        const clock = new THREE.Clock();
-
-        function animate() {
-            requestAnimationFrame(animate);
+        function createTerrain() {
+            const geometry = new THREE.PlaneGeometry(200, 200, 50, 50);
             
-            const time = clock.getElapsedTime();
-            const delta = clock.getDelta();
-
-            // 1. 全局浮动
-            dragonGroup.position.y = Math.sin(time * 1.5) * 0.5;
-
-            // 2. 翅膀扇动
-            const wingSpeed = 3;
-            const flapAngle = Math.sin(time * wingSpeed) * 0.4; // 扇动幅度
+            // Simple noise generation for jagged peaks
+            const simplex = new SimplexNoise();
+            const posAttribute = geometry.attributes.position;
             
-            // 左翼
-            leftWingObj.group.rotation.z = -0.2 + flapAngle; 
-            leftWingObj.forearm.rotation.z = 0.5 + flapAngle * 0.5; // 前臂跟随延迟
+            for (let i = 0; i < posAttribute.count; i++) {
+                const x = posAttribute.getX(i);
+                const y = posAttribute.getY(i);
+                
+                // Layered noise for detail
+                let z = simplex.noise2D(x * 0.02, y * 0.02) * 10;
+                z += simplex.noise2D(x * 0.1, y * 0.1) * 2;
+                
+                // Make it jagged (absolute value creates sharp creases)
+                z = Math.abs(z);
+                
+                // Raise mountains at edges
+                const dist = Math.sqrt(x*x + y*y);
+                if(dist > 20) z += (dist - 20) * 0.5;
 
-            // 右翼
-            rightWingObj.group.rotation.z = 0.2 - flapAngle;
-            rightWingObj.forearm.rotation.z = -0.5 - flapAngle * 0.5;
+                posAttribute.setZ(i, z - 20); // Push down so dragon flies above
+            }
 
-            // 3. 脖子像蛇一样蠕动 (Wave motion)
-            neckBones.forEach((bone, index) => {
-                bone.rotation.x = Math.sin(time * 2 + index * 0.5) * 0.1;
-                bone.rotation.y = Math.cos(time * 1.5 + index * 0.3) * 0.1;
+            geometry.computeVertexNormals();
+
+            const material = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                roughness: 0.9,
+                metalness: 0.1,
+                flatShading: true
             });
 
-            // 4. 尾巴摆动 (Wave motion)
-            tailBones.forEach((bone, index) => {
-                bone.rotation.y = Math.sin(time * 2 - index * 0.4) * 0.15;
-                bone.rotation.x = Math.cos(time * 1.5 - index * 0.4) * 0.05;
+            terrain = new THREE.Mesh(geometry, material);
+            terrain.rotation.x = -Math.PI / 2;
+            scene.add(terrain);
+        }
+
+        function createSnow() {
+            const particleCount = 2000;
+            const geometry = new THREE.BufferGeometry();
+            const positions = [];
+            const velocities = [];
+
+            for (let i = 0; i < particleCount; i++) {
+                positions.push(
+                    (Math.random() - 0.5) * 100,
+                    (Math.random() - 0.5) * 50,
+                    (Math.random() - 0.5) * 100
+                );
+                velocities.push(
+                    (Math.random() - 0.5) * 0.2, // X drift
+                    -Math.random() * 0.5 - 0.1,  // Y fall speed
+                    (Math.random() - 0.5) * 0.2  // Z drift
+                );
+            }
+
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            
+            const material = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.2,
+                transparent: true,
+                opacity: 0.8
             });
 
-            // 5. 粒子下落
-            const positions = particleSystem.geometry.attributes.position.array;
-            for (let i = 1; i < positions.length; i += 3) {
-                positions[i] -= particleSpeeds[(i-1)/3];
-                if (positions[i] < -10) {
-                    positions[i] = 10;
+            snowSystem = new THREE.Points(geometry, material);
+            snowSystem.userData = { velocities: velocities };
+            scene.add(snowSystem);
+        }
+
+        function updateSnow() {
+            const positions = snowSystem.geometry.attributes.position.array;
+            const velocities = snowSystem.userData.velocities;
+
+            for (let i = 0; i < positions.length; i += 3) {
+                // Update position
+                positions[i] += velocities[i] - 0.1; // Wind pushes left
+                positions[i + 1] += velocities[i + 1];
+                positions[i + 2] += velocities[i + 2];
+
+                // Reset if out of bounds
+                if (positions[i + 1] < -20) {
+                    positions[i] = (Math.random() - 0.5) * 100;
+                    positions[i + 1] = 30;
+                    positions[i + 2] = (Math.random() - 0.5) * 100;
                 }
             }
-            particleSystem.geometry.attributes.position.needsUpdate = true;
-            particleSystem.rotation.y = time * 0.05;
-
-            // 渲染
-            composer.render();
+            snowSystem.geometry.attributes.position.needsUpdate = true;
         }
 
-        // 窗口调整
-        window.addEventListener('resize', () => {
+        // --- Main Loop ---
+
+        function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-            composer.setSize(window.innerWidth, window.innerHeight);
-        });
+        }
 
-        animate();
+        function onMouseMove(event) {
+            // Normalize mouse position
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            if (dragon) {
+                dragon.update(time, delta);
+                
+                // Camera interaction
+                const targetX = mouse.x * 10;
+                const targetY = mouse.y * 5 + 5;
+                
+                // Smooth camera follow
+                camera.position.x += (targetX - camera.position.x) * 0.05;
+                camera.position.y += (targetY - camera.position.y) * 0.05;
+                camera.lookAt(dragon.mesh.position);
+            }
+
+            // Move terrain to simulate forward flight
+            if (terrain) {
+                terrain.position.x += 0.2;
+                if(terrain.position.x > 10) terrain.position.x = 0; // Loop terrain texture pos (rough approximation)
+                // Actually moving the mesh is choppy, better to move texture, 
+                // but since we used vertex displacement, we can just translate the whole group back periodically
+                // or move the dragon forward and camera forward.
+                // Let's keep dragon static and move snow/camera logic implies movement.
+            }
+            
+            updateSnow();
+            
+            renderer.render(scene, camera);
+        }
+
+        // Start
+        init();
 
     </script>
 </body>
